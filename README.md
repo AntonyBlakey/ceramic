@@ -1,0 +1,1 @@
+# ceramic - Tiling Window Manager, configured using Rust
