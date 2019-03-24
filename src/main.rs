@@ -1,4 +1,3 @@
-mod window;
 mod window_manager;
 
 use structopt::StructOpt;

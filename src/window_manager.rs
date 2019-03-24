@@ -1,9 +1,72 @@
-use crate::window::Window;
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
+
+struct Window {
+    id: xcb::Window,
+    is_mapped: bool,
+}
+
+trait LayoutAlgorithm {
+    fn layout(&self, wm: &mut WindowManager);
+}
+
+struct Workspace {
+    name: String,
+    layout_algorithm: Rc<LayoutAlgorithm>,
+    windows: HashMap<xcb::Window, Window>,
+}
 
 pub struct WindowManager {
     connection: xcb::Connection,
-    windows: HashMap<xcb::Window, Window>,
+    workspaces: Vec<Workspace>,
+    current_workspace: usize,
+}
+
+struct GridLayout;
+impl LayoutAlgorithm for GridLayout {
+    fn layout(&self, wm: &mut WindowManager) {
+        let screen = wm.connection.get_setup().roots().nth(0).unwrap();
+        let width = screen.width_in_pixels();
+        let height = screen.height_in_pixels();
+
+        let ws = wm.workspaces.get_mut(wm.current_workspace).unwrap();
+
+        let mapped_windows: Vec<&Window> = ws.windows.values().filter(|w| w.is_mapped).collect();
+
+        if mapped_windows.is_empty() {
+            return;
+        }
+
+        let columns = (mapped_windows.len() as f64).sqrt().ceil() as u16;
+        let rows = (mapped_windows.len() as u16 + columns - 1) / columns;
+
+        let screen_gap = 5;
+        let window_gap = 5;
+
+        let cell_width = (width - screen_gap * 2) / columns;
+        let cell_height = (height - screen_gap * 2) / rows;
+
+        let mut row = 0;
+        let mut column = 0;
+
+        let w = cell_width - 2 * window_gap;
+        let h = cell_height - 2 * window_gap;
+        for window in mapped_windows {
+            let x = screen_gap + cell_width * column + window_gap;
+            let y = screen_gap + cell_height * row + window_gap;
+            let values = [
+                (xcb::xproto::CONFIG_WINDOW_X as u16, x as u32),
+                (xcb::xproto::CONFIG_WINDOW_Y as u16, y as u32),
+                (xcb::xproto::CONFIG_WINDOW_WIDTH as u16, w as u32),
+                (xcb::xproto::CONFIG_WINDOW_HEIGHT as u16, h as u32),
+            ];
+            xcb::xproto::configure_window(&wm.connection, window.id, &values);
+            column += 1;
+            if column == columns {
+                column = 0;
+                row += 1;
+            }
+        }
+    }
 }
 
 impl WindowManager {
@@ -14,9 +77,20 @@ impl WindowManager {
 
     fn new() -> WindowManager {
         let (connection, _screen_number) = xcb::Connection::connect(None).unwrap();
+
+        let layout = std::rc::Rc::new(GridLayout {});
+
         WindowManager {
             connection,
-            windows: Default::default(),
+            workspaces: ["a", "s", "d", "f"]
+                .iter()
+                .map(|&n| Workspace {
+                    name: String::from(n),
+                    windows: HashMap::new(),
+                    layout_algorithm: layout.clone(),
+                })
+                .collect(),
+            current_workspace: 0,
         }
     }
 
@@ -49,17 +123,27 @@ impl WindowManager {
     }
 
     fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
-        self.windows.insert(e.window(), Window::new(e.window()));
+        self.workspaces[self.current_workspace].windows.insert(
+            e.window(),
+            Window {
+                id: e.window(),
+                is_mapped: false,
+            },
+        );
     }
 
     fn destroy_notify(&mut self, e: &xcb::DestroyNotifyEvent) {
-        self.windows.remove(&e.window());
+        let ws = self.workspaces.get_mut(self.current_workspace).unwrap();
+        ws.windows.remove(&e.window());
     }
 
     fn configure_request(&mut self, _: &xcb::ConfigureRequestEvent) {}
 
     fn map_request(&mut self, e: &xcb::MapRequestEvent) {
-        let window = self.windows.get_mut(&e.window()).unwrap();
+        let window = self.workspaces[self.current_workspace]
+            .windows
+            .get_mut(&e.window())
+            .unwrap();
         xcb::xproto::map_window(&self.connection, window.id);
     }
 
@@ -67,46 +151,30 @@ impl WindowManager {
 
     fn property_notify(&mut self, _: &xcb::PropertyNotifyEvent) {}
 
-    fn map_notify(&mut self, _: &xcb::MapNotifyEvent) {
+    fn map_notify(&mut self, e: &xcb::MapNotifyEvent) {
+        self.workspaces[self.current_workspace]
+            .windows
+            .get_mut(&e.window())
+            .unwrap()
+            .is_mapped = true;
         self.update_layout();
     }
 
-    fn unmap_notify(&mut self, _: &xcb::UnmapNotifyEvent) {
+    fn unmap_notify(&mut self, e: &xcb::UnmapNotifyEvent) {
+        self.workspaces[self.current_workspace]
+            .windows
+            .get_mut(&e.window())
+            .unwrap()
+            .is_mapped = false;
         self.update_layout();
     }
 
     fn client_message(&mut self, _: &xcb::ClientMessageEvent) {}
 
     fn update_layout(&mut self) {
-        let screen = self.connection.get_setup().roots().nth(0).unwrap();
-        let width = screen.width_in_pixels();
-        let height = screen.height_in_pixels();
-
-        let rows = (self.windows.len() as f64).sqrt().ceil() as u16;
-        let columns = (self.windows.len() / rows as usize) as u16;
-
-        let screen_gap = 5;
-        let window_gap = 5;
-
-        let cell_width = (width - screen_gap * 2) / rows;
-        let cell_height = (height - screen_gap * 2) / columns;
-
-        let mut x = 0;
-        let mut y = 0;
-
-        for w in self.windows.values() {
-            let values = [
-                (xcb::xproto::CONFIG_WINDOW_X as u16, (screen_gap + cell_width * x + window_gap) as u32),
-                (xcb::xproto::CONFIG_WINDOW_Y as u16, (screen_gap + cell_height * y + window_gap) as u32),
-                (xcb::xproto::CONFIG_WINDOW_WIDTH as u16, (cell_width - 2 * window_gap) as u32),
-                (xcb::xproto::CONFIG_WINDOW_HEIGHT as u16, (cell_height - 2 * window_gap) as u32),
-            ];
-            xcb::xproto::configure_window(&self.connection, w.id, &values);
-            x += 1;
-            if x == columns {
-                x = 0;
-                y += 1;
-            }
-        }
+        self.workspaces[self.current_workspace]
+            .layout_algorithm
+            .clone()
+            .layout(self);
     }
 }
