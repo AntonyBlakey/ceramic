@@ -1,82 +1,112 @@
-use std::collections::HashMap;
 use crate::window::Window;
+use std::collections::HashMap;
 
-pub struct WindowManager<'a> {
+pub struct WindowManager {
     connection: xcb::Connection,
-    windows: HashMap<xcb::Window, Window<'a>>
+    windows: HashMap<xcb::Window, Window>,
 }
 
-impl<'a> WindowManager<'a> {
+impl WindowManager {
     pub fn run() {
         let mut me = Self::new();
-        me.setup();
         me.main_loop();
-        me.teardown();
     }
 
-    fn new() -> WindowManager<'a> {
+    fn new() -> WindowManager {
         let (connection, _screen_number) = xcb::Connection::connect(None).unwrap();
-        WindowManager { connection, windows: Default::default() }
+        WindowManager {
+            connection,
+            windows: Default::default(),
+        }
     }
 
-    fn setup(&mut self) {
+    fn main_loop(&mut self) {
         // TODO: handle all screens
-        let root = self.connection.get_setup().roots().nth(0).unwrap().root();
+        let screen = self.connection.get_setup().roots().nth(0).unwrap();
         let values = [(
             xcb::CW_EVENT_MASK,
             xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT,
         )];
-        xcb::change_window_attributes_checked(&self.connection, root, &values)
+        xcb::change_window_attributes_checked(&self.connection, screen.root(), &values)
             .request_check()
             .expect("Cannot install as window manager");
-    }
 
-    fn main_loop(&mut self) {
-        while let Some(event) = self.connection.wait_for_event() {
-            match event.response_type() {
-                xcb::CLIENT_MESSAGE => {
-                    let e: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&event) };
-                    println!("CLIENT_MESSAGE");
-                }
-                xcb::PROPERTY_NOTIFY => {
-                    let e: &xcb::PropertyNotifyEvent = unsafe { xcb::cast_event(&event) };
-                    println!("PROPERTY_NOTIFY");
-                }
-                xcb::CONFIGURE_REQUEST => {
-                    let e: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&event) };
-                    println!("CONFIGURE_REQUEST");
-                }
-                xcb::CONFIGURE_NOTIFY => {
-                    let e: &xcb::ConfigureNotifyEvent = unsafe { xcb::cast_event(&event) };
-                    println!("CONFIGURE_NOTIFY");
-                }
-                xcb::MAP_REQUEST => {
-                    let e: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&event) };
-                    xcb::xproto::map_window(&self.connection, e.window());
-                    println!("MAP_REQUEST");
-                }
-                xcb::UNMAP_NOTIFY => {
-                    let e: &xcb::UnmapNotifyEvent = unsafe { xcb::cast_event(&event) };
-                    println!("UNMAP_NOTIFY");
-                    self.forget_window(e.window());
-                }
-                xcb::DESTROY_NOTIFY => {
-                    let e: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&event) };
-                    println!("DESTROY_NOTIFY");
-                }
-                _ => {}
+        while let Some(e) = self.connection.wait_for_event() {
+            match e.response_type() {
+                xcb::CONFIGURE_REQUEST => self.configure_request(unsafe { xcb::cast_event(&e) }),
+                xcb::MAP_REQUEST => self.map_request(unsafe { xcb::cast_event(&e) }),
+                xcb::CREATE_NOTIFY => self.create_notify(unsafe { xcb::cast_event(&e) }),
+                xcb::DESTROY_NOTIFY => self.destroy_notify(unsafe { xcb::cast_event(&e) }),
+                xcb::CONFIGURE_NOTIFY => self.configure_notify(unsafe { xcb::cast_event(&e) }),
+                xcb::PROPERTY_NOTIFY => self.property_notify(unsafe { xcb::cast_event(&e) }),
+                xcb::MAP_NOTIFY => self.map_notify(unsafe { xcb::cast_event(&e) }),
+                xcb::UNMAP_NOTIFY => self.unmap_notify(unsafe { xcb::cast_event(&e) }),
+                xcb::CLIENT_MESSAGE => self.client_message(unsafe { xcb::cast_event(&e) }),
+                t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
             }
+            self.connection.flush();
         }
     }
 
-    fn teardown(&mut self) {}
-
-    fn get_window(&'a mut self, id: xcb::Window) -> &Window {
-        let connection = &self.connection;
-        self.windows.entry(id).or_insert_with(|| Window::new(connection, id))
+    fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
+        self.windows.insert(e.window(), Window::new(e.window()));
     }
 
-    fn forget_window(&mut self, id: xcb::Window) {
-        self.windows.remove(&id);
+    fn destroy_notify(&mut self, e: &xcb::DestroyNotifyEvent) {
+        self.windows.remove(&e.window());
+    }
+
+    fn configure_request(&mut self, _: &xcb::ConfigureRequestEvent) {}
+
+    fn map_request(&mut self, e: &xcb::MapRequestEvent) {
+        let window = self.windows.get_mut(&e.window()).unwrap();
+        xcb::xproto::map_window(&self.connection, window.id);
+    }
+
+    fn configure_notify(&mut self, _: &xcb::ConfigureNotifyEvent) {}
+
+    fn property_notify(&mut self, _: &xcb::PropertyNotifyEvent) {}
+
+    fn map_notify(&mut self, _: &xcb::MapNotifyEvent) {
+        self.update_layout();
+    }
+
+    fn unmap_notify(&mut self, _: &xcb::UnmapNotifyEvent) {
+        self.update_layout();
+    }
+
+    fn client_message(&mut self, _: &xcb::ClientMessageEvent) {}
+
+    fn update_layout(&mut self) {
+        let screen = self.connection.get_setup().roots().nth(0).unwrap();
+        let width = screen.width_in_pixels();
+        let height = screen.height_in_pixels();
+
+        let rows = (self.windows.len() as f64).sqrt().ceil() as u16;
+        let columns = (self.windows.len() / rows as usize) as u16;
+
+        let screen_gap = 5;
+        let window_gap = 5;
+
+        let cell_width = (width - screen_gap * 2) / rows;
+        let cell_height = (height - screen_gap * 2) / columns;
+
+        let mut x = 0;
+        let mut y = 0;
+
+        for w in self.windows.values() {
+            let values = [
+                (xcb::xproto::CONFIG_WINDOW_X as u16, (screen_gap + cell_width * x + window_gap) as u32),
+                (xcb::xproto::CONFIG_WINDOW_Y as u16, (screen_gap + cell_height * y + window_gap) as u32),
+                (xcb::xproto::CONFIG_WINDOW_WIDTH as u16, (cell_width - 2 * window_gap) as u32),
+                (xcb::xproto::CONFIG_WINDOW_HEIGHT as u16, (cell_height - 2 * window_gap) as u32),
+            ];
+            xcb::xproto::configure_window(&self.connection, w.id, &values);
+            x += 1;
+            if x == columns {
+                x = 0;
+                y += 1;
+            }
+        }
     }
 }
