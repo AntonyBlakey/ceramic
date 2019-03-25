@@ -1,8 +1,33 @@
 use std::{collections::HashMap, rc::Rc};
 
 struct Window {
+    connection: Rc<xcb::Connection>,
     id: xcb::Window,
     is_mapped: bool,
+}
+
+impl Window {
+    fn map(&self) {
+        xcb::xproto::map_window(&self.connection, self.id);
+    }
+
+    fn map_notify(&mut self) {
+        self.is_mapped = true;
+    }
+
+    fn unmap_notify(&mut self) {
+        self.is_mapped = false;
+    }
+
+    fn set_geometry(&self, x: u32, y: u32, w: u32, h: u32) {
+        let values = [
+            (xcb::xproto::CONFIG_WINDOW_X as u16, x),
+            (xcb::xproto::CONFIG_WINDOW_Y as u16, y),
+            (xcb::xproto::CONFIG_WINDOW_WIDTH as u16, w),
+            (xcb::xproto::CONFIG_WINDOW_HEIGHT as u16, h),
+        ];
+        xcb::xproto::configure_window(&self.connection, self.id, &values);
+    }
 }
 
 trait LayoutAlgorithm {
@@ -12,11 +37,21 @@ trait LayoutAlgorithm {
 struct Workspace {
     name: String,
     layout_algorithm: Rc<LayoutAlgorithm>,
-    windows: HashMap<xcb::Window, Window>,
+    windows: Vec<xcb::Window>,
+}
+
+impl Workspace {
+    fn add_window(&mut self, window: &Window) {
+        self.windows.push(window.id);
+    }
+    fn remove_window(&mut self, window: &Window) {
+        self.windows.remove_item(&window.id);
+    }
 }
 
 pub struct WindowManager {
-    connection: xcb::Connection,
+    connection: Rc<xcb::Connection>,
+    windows: HashMap<xcb::Window, Window>,
     workspaces: Vec<Workspace>,
     current_workspace: usize,
 }
@@ -30,7 +65,13 @@ impl LayoutAlgorithm for GridLayout {
 
         let ws = wm.workspaces.get_mut(wm.current_workspace).unwrap();
 
-        let mapped_windows: Vec<&Window> = ws.windows.values().filter(|w| w.is_mapped).collect();
+        let windows = &wm.windows;
+        let mapped_windows: Vec<&Window> = ws
+            .windows
+            .iter()
+            .map(|id| &windows[id])
+            .filter(|w| w.is_mapped)
+            .collect();
 
         if mapped_windows.is_empty() {
             return;
@@ -53,13 +94,7 @@ impl LayoutAlgorithm for GridLayout {
         for window in mapped_windows {
             let x = screen_gap + cell_width * column + window_gap;
             let y = screen_gap + cell_height * row + window_gap;
-            let values = [
-                (xcb::xproto::CONFIG_WINDOW_X as u16, x as u32),
-                (xcb::xproto::CONFIG_WINDOW_Y as u16, y as u32),
-                (xcb::xproto::CONFIG_WINDOW_WIDTH as u16, w as u32),
-                (xcb::xproto::CONFIG_WINDOW_HEIGHT as u16, h as u32),
-            ];
-            xcb::xproto::configure_window(&wm.connection, window.id, &values);
+            window.set_geometry(x as u32, y as u32, w as u32, h as u32);
             column += 1;
             if column == columns {
                 column = 0;
@@ -71,25 +106,21 @@ impl LayoutAlgorithm for GridLayout {
 
 impl WindowManager {
     pub fn run() {
-        let mut me = Self::new();
-        me.main_loop();
+        let mut wm = Self::new();
+        let layout: Rc<LayoutAlgorithm> = Rc::new(GridLayout {});
+        for name in &["a", "s", "d", "f"] {
+            wm.add_workspace(name, &layout);
+        }
+        wm.main_loop();
     }
 
     fn new() -> WindowManager {
         let (connection, _screen_number) = xcb::Connection::connect(None).unwrap();
 
-        let layout = std::rc::Rc::new(GridLayout {});
-
         WindowManager {
-            connection,
-            workspaces: ["a", "s", "d", "f"]
-                .iter()
-                .map(|&n| Workspace {
-                    name: String::from(n),
-                    windows: HashMap::new(),
-                    layout_algorithm: layout.clone(),
-                })
-                .collect(),
+            connection: Rc::new(connection),
+            windows: HashMap::new(),
+            workspaces: Vec::new(),
             current_workspace: 0,
         }
     }
@@ -104,6 +135,8 @@ impl WindowManager {
         xcb::change_window_attributes_checked(&self.connection, screen.root(), &values)
             .request_check()
             .expect("Cannot install as window manager");
+
+        // TODO: process all the pre-existing windows
 
         while let Some(e) = self.connection.wait_for_event() {
             match e.response_type() {
@@ -122,54 +155,64 @@ impl WindowManager {
         }
     }
 
+    fn add_workspace(&mut self, name: &str, layout: &Rc<LayoutAlgorithm>) {
+        self.workspaces.push(Workspace {
+            name: String::from(name),
+            windows: Vec::new(),
+            layout_algorithm: layout.clone(),
+        })
+    }
+
     fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
-        self.workspaces[self.current_workspace].windows.insert(
+        self.windows.insert(
             e.window(),
             Window {
+                connection: self.connection.clone(),
                 id: e.window(),
                 is_mapped: false,
             },
         );
+        let window = &self.windows[&e.window()];
+        self.workspaces[self.current_workspace].add_window(window);
     }
 
     fn destroy_notify(&mut self, e: &xcb::DestroyNotifyEvent) {
-        let ws = self.workspaces.get_mut(self.current_workspace).unwrap();
-        ws.windows.remove(&e.window());
+        let window = &self.windows[&e.window()];
+        for ws in &mut self.workspaces {
+            ws.remove_window(window);
+        }
+        self.windows.remove(&e.window());
     }
 
-    fn configure_request(&mut self, _: &xcb::ConfigureRequestEvent) {}
+    fn configure_request(&mut self, e: &xcb::ConfigureRequestEvent) {
+        println!("Configure Request: {:x}", e.window());
+    }
 
     fn map_request(&mut self, e: &xcb::MapRequestEvent) {
-        let window = self.workspaces[self.current_workspace]
-            .windows
-            .get_mut(&e.window())
-            .unwrap();
-        xcb::xproto::map_window(&self.connection, window.id);
+        self.windows[&e.window()].map();
     }
 
-    fn configure_notify(&mut self, _: &xcb::ConfigureNotifyEvent) {}
+    fn configure_notify(&mut self, e: &xcb::ConfigureNotifyEvent) {
+        println!("Configure Notify: {:x}", e.window());
+    }
 
-    fn property_notify(&mut self, _: &xcb::PropertyNotifyEvent) {}
+    fn property_notify(&mut self, e: &xcb::PropertyNotifyEvent) {
+        println!("Property Notify: {:x}", e.window());
+    }
 
     fn map_notify(&mut self, e: &xcb::MapNotifyEvent) {
-        self.workspaces[self.current_workspace]
-            .windows
-            .get_mut(&e.window())
-            .unwrap()
-            .is_mapped = true;
+        self.windows.get_mut(&e.window()).unwrap().map_notify();
         self.update_layout();
     }
 
     fn unmap_notify(&mut self, e: &xcb::UnmapNotifyEvent) {
-        self.workspaces[self.current_workspace]
-            .windows
-            .get_mut(&e.window())
-            .unwrap()
-            .is_mapped = false;
+        self.windows.get_mut(&e.window()).unwrap().unmap_notify();
         self.update_layout();
     }
 
-    fn client_message(&mut self, _: &xcb::ClientMessageEvent) {}
+    fn client_message(&mut self, e: &xcb::ClientMessageEvent) {
+        println!("Client Message: {:x}", e.window());
+    }
 
     fn update_layout(&mut self) {
         self.workspaces[self.current_workspace]

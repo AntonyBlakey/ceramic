@@ -1,3 +1,5 @@
+#![feature(vec_remove_item)]
+
 mod window_manager;
 
 use structopt::StructOpt;
