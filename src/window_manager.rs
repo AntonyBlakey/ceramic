@@ -1,4 +1,4 @@
-use super::{window::Window, workspace::Workspace, layout, layout::LayoutAlgorithm};
+use super::{layout, layout::LayoutAlgorithm, window::Window, workspace::Workspace};
 use std::{collections::HashMap, rc::Rc};
 
 pub struct WindowManager {
