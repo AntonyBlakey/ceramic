@@ -1,5 +1,8 @@
 #![feature(vec_remove_item)]
 
+mod window;
+mod layout;
+mod workspace;
 mod window_manager;
 
 use structopt::StructOpt;

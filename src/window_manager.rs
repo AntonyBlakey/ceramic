@@ -1,113 +1,17 @@
+use super::{window::Window, workspace::Workspace, layout, layout::LayoutAlgorithm};
 use std::{collections::HashMap, rc::Rc};
 
-struct Window {
-    connection: Rc<xcb::Connection>,
-    id: xcb::Window,
-    is_mapped: bool,
-}
-
-impl Window {
-    fn map(&self) {
-        xcb::xproto::map_window(&self.connection, self.id);
-    }
-
-    fn map_notify(&mut self) {
-        self.is_mapped = true;
-    }
-
-    fn unmap_notify(&mut self) {
-        self.is_mapped = false;
-    }
-
-    fn set_geometry(&self, x: u32, y: u32, w: u32, h: u32) {
-        let values = [
-            (xcb::xproto::CONFIG_WINDOW_X as u16, x),
-            (xcb::xproto::CONFIG_WINDOW_Y as u16, y),
-            (xcb::xproto::CONFIG_WINDOW_WIDTH as u16, w),
-            (xcb::xproto::CONFIG_WINDOW_HEIGHT as u16, h),
-        ];
-        xcb::xproto::configure_window(&self.connection, self.id, &values);
-    }
-}
-
-trait LayoutAlgorithm {
-    fn layout(&self, wm: &mut WindowManager);
-}
-
-struct Workspace {
-    name: String,
-    layout_algorithm: Rc<LayoutAlgorithm>,
-    windows: Vec<xcb::Window>,
-}
-
-impl Workspace {
-    fn add_window(&mut self, window: &Window) {
-        self.windows.push(window.id);
-    }
-    fn remove_window(&mut self, window: &Window) {
-        self.windows.remove_item(&window.id);
-    }
-}
-
 pub struct WindowManager {
-    connection: Rc<xcb::Connection>,
-    windows: HashMap<xcb::Window, Window>,
-    workspaces: Vec<Workspace>,
-    current_workspace: usize,
-}
-
-struct GridLayout;
-impl LayoutAlgorithm for GridLayout {
-    fn layout(&self, wm: &mut WindowManager) {
-        let screen = wm.connection.get_setup().roots().nth(0).unwrap();
-        let width = screen.width_in_pixels();
-        let height = screen.height_in_pixels();
-
-        let ws = wm.workspaces.get_mut(wm.current_workspace).unwrap();
-
-        let windows = &wm.windows;
-        let mapped_windows: Vec<&Window> = ws
-            .windows
-            .iter()
-            .map(|id| &windows[id])
-            .filter(|w| w.is_mapped)
-            .collect();
-
-        if mapped_windows.is_empty() {
-            return;
-        }
-
-        let columns = (mapped_windows.len() as f64).sqrt().ceil() as u16;
-        let rows = (mapped_windows.len() as u16 + columns - 1) / columns;
-
-        let screen_gap = 5;
-        let window_gap = 5;
-
-        let cell_width = (width - screen_gap * 2) / columns;
-        let cell_height = (height - screen_gap * 2) / rows;
-
-        let mut row = 0;
-        let mut column = 0;
-
-        let w = cell_width - 2 * window_gap;
-        let h = cell_height - 2 * window_gap;
-        for window in mapped_windows {
-            let x = screen_gap + cell_width * column + window_gap;
-            let y = screen_gap + cell_height * row + window_gap;
-            window.set_geometry(x as u32, y as u32, w as u32, h as u32);
-            column += 1;
-            if column == columns {
-                column = 0;
-                row += 1;
-            }
-        }
-    }
+    pub connection: Rc<xcb::Connection>,
+    pub windows: HashMap<xcb::Window, Window>,
+    pub workspaces: Vec<Workspace>,
+    pub current_workspace: usize,
 }
 
 impl WindowManager {
     pub fn run() {
         let mut wm = Self::new();
-        let layout: Rc<LayoutAlgorithm> = Rc::new(GridLayout {});
+        let layout: Rc<LayoutAlgorithm> = Rc::new(layout::GridLayout {});
         for name in &["a", "s", "d", "f"] {
             wm.add_workspace(name, &layout);
         }
@@ -127,6 +31,7 @@ impl WindowManager {
 
     fn main_loop(&mut self) {
         // TODO: handle all screens
+
         let screen = self.connection.get_setup().roots().nth(0).unwrap();
         let values = [(
             xcb::CW_EVENT_MASK,
@@ -164,14 +69,8 @@ impl WindowManager {
     }
 
     fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
-        self.windows.insert(
-            e.window(),
-            Window {
-                connection: self.connection.clone(),
-                id: e.window(),
-                is_mapped: false,
-            },
-        );
+        self.windows
+            .insert(e.window(), Window::new(&self.connection, e.window()));
         let window = &self.windows[&e.window()];
         self.workspaces[self.current_workspace].add_window(window);
     }
