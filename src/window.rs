@@ -1,15 +1,13 @@
-use std::rc::Rc;
+use super::window_manager::connection;
 
 pub struct Window {
-    connection: Rc<xcb::Connection>,
     id: xcb::Window,
     is_mapped: bool,
 }
 
 impl Window {
-    pub fn new(connection: &Rc<xcb::Connection>, id: xcb::Window) -> Window {
+    pub fn new(id: xcb::Window) -> Window {
         Window {
-            connection: connection.clone(),
             id,
             is_mapped: false,
         }
@@ -24,7 +22,7 @@ impl Window {
     }
 
     pub fn map(&self) {
-        xcb::xproto::map_window(&self.connection, self.id);
+        xcb::xproto::map_window(&connection(), self.id);
     }
 
     pub fn map_notify(&mut self) {
@@ -42,6 +40,6 @@ impl Window {
             (xcb::xproto::CONFIG_WINDOW_WIDTH as u16, w),
             (xcb::xproto::CONFIG_WINDOW_HEIGHT as u16, h),
         ];
-        xcb::xproto::configure_window(&self.connection, self.id, &values);
+        xcb::xproto::configure_window(&connection(), self.id, &values);
     }
 }

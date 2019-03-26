@@ -1,49 +1,49 @@
 use super::{layout, layout::LayoutAlgorithm, window::Window, workspace::Workspace};
 use std::{collections::HashMap, rc::Rc};
 
+#[derive(Default)]
 pub struct WindowManager {
-    pub connection: Rc<xcb::Connection>,
     pub windows: HashMap<xcb::Window, Window>,
     pub workspaces: Vec<Workspace>,
     pub current_workspace: usize,
 }
 
+static mut CONNECTION: Option<Rc<xcb::Connection>> = None;
+pub fn connection() -> Rc<xcb::Connection> {
+    unsafe {
+        if CONNECTION.is_none() {
+            let (connection, _screen_number) = xcb::Connection::connect(None).unwrap();
+            CONNECTION = Some(Rc::new(connection));
+        }
+        CONNECTION.clone().unwrap()
+    }
+}
+
+pub fn run() {
+    let mut wm = WindowManager::default();
+    let layout: Rc<LayoutAlgorithm> = Rc::new(layout::GridLayout::default());
+    for name in &["a", "s", "d", "f"] {
+        wm.add_workspace(name, &layout);
+    }
+    wm.main_loop();
+}
+
 impl WindowManager {
-    pub fn run() {
-        let mut wm = Self::new();
-        let layout: Rc<LayoutAlgorithm> = Rc::new(layout::GridLayout {});
-        for name in &["a", "s", "d", "f"] {
-            wm.add_workspace(name, &layout);
-        }
-        wm.main_loop();
-    }
-
-    fn new() -> WindowManager {
-        let (connection, _screen_number) = xcb::Connection::connect(None).unwrap();
-
-        WindowManager {
-            connection: Rc::new(connection),
-            windows: HashMap::new(),
-            workspaces: Vec::new(),
-            current_workspace: 0,
-        }
-    }
-
     fn main_loop(&mut self) {
         // TODO: handle all screens
-
-        let screen = self.connection.get_setup().roots().nth(0).unwrap();
+        let connection = connection();
+        let screen = connection.get_setup().roots().nth(0).unwrap();
         let values = [(
             xcb::CW_EVENT_MASK,
             xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT,
         )];
-        xcb::change_window_attributes_checked(&self.connection, screen.root(), &values)
+        xcb::change_window_attributes_checked(&connection, screen.root(), &values)
             .request_check()
             .expect("Cannot install as window manager");
 
         // TODO: process all the pre-existing windows
 
-        while let Some(e) = self.connection.wait_for_event() {
+        while let Some(e) = connection.wait_for_event() {
             match e.response_type() {
                 xcb::CONFIGURE_REQUEST => self.configure_request(unsafe { xcb::cast_event(&e) }),
                 xcb::MAP_REQUEST => self.map_request(unsafe { xcb::cast_event(&e) }),
@@ -56,7 +56,7 @@ impl WindowManager {
                 xcb::CLIENT_MESSAGE => self.client_message(unsafe { xcb::cast_event(&e) }),
                 t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
             }
-            self.connection.flush();
+            connection.flush();
         }
     }
 
@@ -69,8 +69,7 @@ impl WindowManager {
     }
 
     fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
-        self.windows
-            .insert(e.window(), Window::new(&self.connection, e.window()));
+        self.windows.insert(e.window(), Window::new(e.window()));
         let window = &self.windows[&e.window()];
         self.workspaces[self.current_workspace].add_window(window);
     }
@@ -114,9 +113,10 @@ impl WindowManager {
     }
 
     fn update_layout(&mut self) {
-        self.workspaces[self.current_workspace]
-            .layout_algorithm
-            .clone()
-            .layout(self);
+        // let screen = connection().get_setup().roots().nth(0).unwrap();
+        // self.workspaces[self.current_workspace]
+        //     .layout_algorithm
+        //     .clone()
+        //     .layout(&euclid::rect(0, 0, screen.width_in_pixels(), screen.height_in_pixels()), self);
     }
 }

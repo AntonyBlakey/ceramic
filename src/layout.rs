@@ -1,4 +1,5 @@
 use super::window::Window;
+use std::clone::Clone;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -8,40 +9,52 @@ pub enum Axis {
 }
 
 impl Axis {
-    pub fn extract_origin<T>(&self, rect: &euclid::Rect<T>) -> T {
+    pub fn extract_origin<T>(&self, rect: &euclid::Rect<T>) -> T
+    where
+        T: Copy,
+    {
         match self {
-            X => rect.origin.x,
-            Y => rect.origin.y,
+            Axis::X => rect.origin.x,
+            Axis::Y => rect.origin.y,
         }
     }
-    pub fn extract_size<T>(&self, rect: &euclid::Rect<T>) -> T {
+    pub fn extract_size<T>(&self, rect: &euclid::Rect<T>) -> T
+    where
+        T: Copy,
+    {
         match self {
-            X => rect.size.width,
-            Y => rect.size.height,
+            Axis::X => rect.size.width,
+            Axis::Y => rect.size.height,
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum Direction {
-    Decreasing,
     Increasing,
+    Decreasing,
 }
 
 pub type LayoutRect = euclid::Rect<u16>;
 
 pub trait LayoutAlgorithm {
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window], result: &mut LayoutResult);
+    fn boxed_clone(&self) -> Box<LayoutAlgorithm>;
+    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]);
 }
 
-pub trait Graphic {}
+pub struct LayoutStep(Box<LayoutAlgorithm>);
 
-pub struct LayoutResult {}
+impl std::ops::Deref for LayoutStep {
+    type Target = Box<LayoutAlgorithm>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
-impl LayoutResult {
-    pub fn add_window(&mut self, rect: &LayoutRect, window: &mut Window) {}
-
-    pub fn add_graphic(&mut self, rect: &LayoutRect, graphic: &Rc<Graphic>) {}
+impl Clone for LayoutStep {
+    fn clone(&self) -> LayoutStep {
+        LayoutStep(self.0.boxed_clone())
+    }
 }
 
 //
@@ -55,8 +68,21 @@ pub struct GridLayout {
     minor_direction: Direction,
 }
 
+impl Default for GridLayout {
+    fn default() -> GridLayout {
+        GridLayout {
+            major_axis: Axis::X,
+            major_direction: Direction::Increasing,
+            minor_direction: Direction::Increasing,
+        }
+    }
+}
+
 impl LayoutAlgorithm for GridLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window], result: &mut LayoutResult) {
+    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
+        Box::new(self.clone())
+    }
+    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {
         if windows.is_empty() {
             return;
         }
@@ -97,16 +123,19 @@ pub struct SplitLayout {
     ratio: f64,
     axis: Axis,
     direction: Direction,
-    layout_1: Rc<LayoutAlgorithm>,
-    layout_2: Rc<LayoutAlgorithm>,
+    layout_1: LayoutStep,
+    layout_2: LayoutStep,
 }
 
 impl LayoutAlgorithm for SplitLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window], result: &mut LayoutResult) {
-        let rect_1 = rect;
-        let rect_2 = rect;
+    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
+        Box::new(self.clone())
+    }
+    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {
+        let mut rect_1 = *rect;
+        let mut rect_2 = *rect;
 
-        match (self.axis, self.direction) {
+        match (&self.axis, &self.direction) {
             (Axis::X, Direction::Increasing) => {
                 let split = (rect.size.width as f64 * self.ratio).floor() as u16;
                 rect_1.size.width = split;
@@ -133,8 +162,8 @@ impl LayoutAlgorithm for SplitLayout {
             }
         }
 
-        self.layout_1.clone().layout(&rect_1, windows, result);
-        self.layout_2.clone().layout(&rect_2, windows, result);
+        self.layout_1.layout(&rect_1, windows);
+        self.layout_2.layout(&rect_2, windows);
     }
 }
 
@@ -148,7 +177,10 @@ pub struct TabbedLayout {
 }
 
 impl LayoutAlgorithm for TabbedLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window], result: &mut LayoutResult) {}
+    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
+        Box::new(self.clone())
+    }
+    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {}
 }
 
 //
@@ -162,87 +194,89 @@ pub struct LinearLayout {
 }
 
 impl LayoutAlgorithm for LinearLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window], result: &mut LayoutResult) {}
+    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
+        Box::new(self.clone())
+    }
+    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {}
 }
 
 //
 //------------------------------------------------------------------
 //
 
-pub type LayoutFactory = Fn(&LayoutRect, &[&mut Window]) -> Rc<LayoutAlgorithm>;
+pub type LayoutFactory = Fn(&LayoutRect, &[&mut Window]) -> usize;
 
 // Selects a layout dynamically
 #[derive(Clone)]
 pub struct DynamicLayout {
     layout_factory: Rc<LayoutFactory>,
+    algorithms: Vec<LayoutStep>,
 }
 
 impl DynamicLayout {
-    pub fn new(layout_factory: &Rc<LayoutFactory>) -> DynamicLayout {
+    pub fn new(layout_factory: &Rc<LayoutFactory>, algorithms: &[LayoutStep]) -> DynamicLayout {
         DynamicLayout {
             layout_factory: layout_factory.clone(),
+            algorithms: algorithms.iter().map(|x| x.clone()).collect(),
         }
     }
 
     pub fn switch_on_window_count(
         count: usize,
-        layout_1: &Rc<LayoutAlgorithm>,
-        layout_2: &Rc<LayoutAlgorithm>,
+        lsmall: &LayoutStep,
+        lbig: &LayoutStep,
     ) -> DynamicLayout {
-        let l_1 = layout_1.clone();
-        let l_2 = layout_2.clone();
-        let layout_factory: Rc<LayoutFactory> = Rc::new(move |rect, windows| {
-            if windows.len() <= count {
-                l_1.clone()
-            } else {
-                l_2.clone()
-            }
-        });
-        Self::new(&layout_factory)
+        let layout_factory: Rc<LayoutFactory> = Rc::new(
+            move |rect, windows| {
+                if windows.len() <= count {
+                    0
+                } else {
+                    1
+                }
+            },
+        );
+        Self::new(&layout_factory, &[lsmall.clone(), lbig.clone()])
     }
 
     pub fn switch_on_available_size(
         axis: Axis,
         size_break: u16,
-        layout_1: &Rc<LayoutAlgorithm>,
-        layout_2: &Rc<LayoutAlgorithm>,
+        lsmall: &LayoutStep,
+        lbig: &LayoutStep,
     ) -> DynamicLayout {
-        let l_1 = layout_1.clone();
-        let l_2 = layout_2.clone();
         let layout_factory: Rc<LayoutFactory> = Rc::new(move |rect, _| {
             if axis.extract_size(rect) < size_break {
-                l_1.clone()
+                0
             } else {
-                l_2.clone()
+                1
             }
         });
-        Self::new(&layout_factory)
+        Self::new(&layout_factory, &[lsmall.clone(), lbig.clone()])
     }
 
     pub fn switch_on_prorata_size(
         axis: Axis,
         size_break: u16,
-        layout_1: &Rc<LayoutAlgorithm>,
-        layout_2: &Rc<LayoutAlgorithm>,
+        lsmall: &LayoutStep,
+        lbig: &LayoutStep,
     ) -> DynamicLayout {
-        let l_1 = layout_1.clone();
-        let l_2 = layout_2.clone();
         let layout_factory: Rc<LayoutFactory> = Rc::new(move |rect, windows| {
             if (axis.extract_size(rect) / windows.len() as u16) < size_break {
-                l_1.clone()
+                0
             } else {
-                l_2.clone()
+                1
             }
         });
-        Self::new(&layout_factory)
+        Self::new(&layout_factory, &[lsmall.clone(), lbig.clone()])
     }
 }
 
 impl LayoutAlgorithm for DynamicLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window], result: &mut LayoutResult) {
-        (self.layout_factory)(rect, windows)
-            .clone()
-            .layout(rect, windows, result);
+    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
+        Box::new(self.clone())
+    }
+    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {
+        self.algorithms[(self.layout_factory)(rect, windows)].layout(rect, windows);
     }
 }
 
@@ -255,48 +289,45 @@ pub type Predicate = Fn(&LayoutRect, usize, &Window) -> bool;
 #[derive(Clone)]
 pub struct PredicateSelector {
     predicate: Rc<Predicate>,
-    layout: Rc<LayoutAlgorithm>,
+    layout: LayoutStep,
 }
 
 impl PredicateSelector {
-    pub fn passing(predicate: &Rc<Predicate>, layout: &Rc<LayoutAlgorithm>) -> PredicateSelector {
+    pub fn passing(predicate: &Rc<Predicate>, layout: LayoutStep) -> PredicateSelector {
         PredicateSelector {
             predicate: predicate.clone(),
             layout: layout.clone(),
         }
     }
 
-    pub fn failing(test: &Rc<Predicate>, layout: &Rc<LayoutAlgorithm>) -> PredicateSelector {
+    pub fn failing(test: &Rc<Predicate>, layout: LayoutStep) -> PredicateSelector {
         let t = test.clone();
         let test: Rc<Predicate> =
             Rc::new(move |rect, index, window| t(rect, index, window) != true);
         Self::passing(&test, layout)
     }
 
-    pub fn first(count: usize, layout: &Rc<LayoutAlgorithm>) -> PredicateSelector {
-        let test: Rc<Predicate> = Rc::new(|_, index, _| index < count);
+    pub fn first(count: usize, layout: LayoutStep) -> PredicateSelector {
+        let test: Rc<Predicate> = Rc::new(move |_, index, _| index < count);
         Self::passing(&test, layout)
     }
 
-    pub fn all_but_first(count: usize, layout: &Rc<LayoutAlgorithm>) -> PredicateSelector {
-        let test: Rc<Predicate> = Rc::new(|_, index, _| index >= count);
+    pub fn all_but_first(count: usize, layout: LayoutStep) -> PredicateSelector {
+        let test: Rc<Predicate> = Rc::new(move |_, index, _| index >= count);
         Self::passing(&test, layout)
     }
 }
 
 impl LayoutAlgorithm for PredicateSelector {
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window], result: &mut LayoutResult) {
-        let filtered_windows = windows
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(i, &mut w)| {
-                if (self.predicate)(rect, i, w) {
-                    Some(w)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        (self.layout).layout(rect, &filtered_windows, result);
+    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
+        Box::new(self.clone())
+    }
+    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {
+        // let filtered_windows = windows
+        //     .iter()
+        //     .enumerate()
+        //     .filter(|(i, w)| (self.predicate)(rect, *i, *w))
+        //     .collect::<Vec<_>>();
+        // (self.layout).layout(rect, &filtered_windows, result);
     }
 }
