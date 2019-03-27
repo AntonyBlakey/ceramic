@@ -1,9 +1,9 @@
-use super::{layout, layout::LayoutAlgorithm, window::Window, workspace::Workspace};
+use super::{layout, layout::{LayoutStep, LayoutAlgorithm, LayoutAction}, window, window::Window, workspace::Workspace};
 use std::{collections::HashMap, rc::Rc};
 
 #[derive(Default)]
 pub struct WindowManager {
-    pub windows: HashMap<xcb::Window, Window>,
+    pub windows: HashMap<window::Id, Window>,
     pub workspaces: Vec<Workspace>,
     pub current_workspace: usize,
 }
@@ -21,9 +21,9 @@ pub fn connection() -> Rc<xcb::Connection> {
 
 pub fn run() {
     let mut wm = WindowManager::default();
-    let layout: Rc<LayoutAlgorithm> = Rc::new(layout::GridLayout::default());
+    let layout = layout::GridLayout::default();
     for name in &["a", "s", "d", "f"] {
-        wm.add_workspace(name, &layout);
+        wm.add_workspace(name, layout.to_layout_step());
     }
     wm.main_loop();
 }
@@ -60,11 +60,11 @@ impl WindowManager {
         }
     }
 
-    fn add_workspace(&mut self, name: &str, layout: &Rc<LayoutAlgorithm>) {
+    fn add_workspace(&mut self, name: &str, layout: LayoutStep) {
         self.workspaces.push(Workspace {
             name: String::from(name),
-            windows: Vec::new(),
-            layout_algorithm: layout.clone(),
+            windows: Default::default(),
+            layout,
         })
     }
 
@@ -113,10 +113,19 @@ impl WindowManager {
     }
 
     fn update_layout(&mut self) {
-        // let screen = connection().get_setup().roots().nth(0).unwrap();
-        // self.workspaces[self.current_workspace]
-        //     .layout_algorithm
-        //     .clone()
-        //     .layout(&euclid::rect(0, 0, screen.width_in_pixels(), screen.height_in_pixels()), self);
+        let ws = &self.workspaces[self.current_workspace];
+        let windows: Vec<&Window> = ws.windows.iter().map(|id|&self.windows[id]).collect();
+        let connection = connection();
+        let screen = connection.get_setup().roots().nth(0).unwrap();
+        let actions = ws
+            .layout
+            .layout(&euclid::rect(0, 0, screen.width_in_pixels(), screen.height_in_pixels()), &windows);
+        for a in actions {
+            match a {
+                LayoutAction::Position { id, rect } =>
+                    self.windows[&id].set_geometry(&rect),
+                _ => (),
+            }
+        }
     }
 }

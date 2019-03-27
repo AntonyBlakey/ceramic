@@ -1,4 +1,4 @@
-use super::window::Window;
+use super::{window, window::Window};
 use std::clone::Clone;
 use std::rc::Rc;
 
@@ -38,8 +38,8 @@ pub enum Direction {
 pub type LayoutRect = euclid::Rect<u16>;
 
 pub trait LayoutAlgorithm {
-    fn boxed_clone(&self) -> Box<LayoutAlgorithm>;
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]);
+    fn to_layout_step(&self) -> LayoutStep;
+    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction>;
 }
 
 pub struct LayoutStep(Box<LayoutAlgorithm>);
@@ -53,8 +53,21 @@ impl std::ops::Deref for LayoutStep {
 
 impl Clone for LayoutStep {
     fn clone(&self) -> LayoutStep {
-        LayoutStep(self.0.boxed_clone())
+        self.0.to_layout_step()
     }
+}
+
+pub trait Artist {}
+
+pub enum LayoutAction {
+    Draw {
+        artist: Rc<Artist>,
+        rect: LayoutRect,
+    },
+    Position {
+        id: window::Id,
+        rect: LayoutRect,
+    },
 }
 
 //
@@ -79,12 +92,12 @@ impl Default for GridLayout {
 }
 
 impl LayoutAlgorithm for GridLayout {
-    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
-        Box::new(self.clone())
+    fn to_layout_step(&self) -> LayoutStep {
+        LayoutStep(Box::new(self.clone()))
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {
+    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
         if windows.is_empty() {
-            return;
+            return Default::default();
         }
 
         let columns = (windows.len() as f64).sqrt().ceil() as u16;
@@ -101,16 +114,22 @@ impl LayoutAlgorithm for GridLayout {
 
         let w = cell_width - 2 * window_gap;
         let h = cell_height - 2 * window_gap;
-        for window in windows {
-            let x = rect.origin.x + screen_gap + cell_width * column + window_gap;
-            let y = rect.origin.y + screen_gap + cell_height * row + window_gap;
-            window.set_geometry(x as u32, y as u32, w as u32, h as u32);
-            column += 1;
-            if column == columns {
-                column = 0;
-                row += 1;
-            }
-        }
+        windows
+            .iter()
+            .map(|window| {
+                let x = rect.origin.x + screen_gap + cell_width * column + window_gap;
+                let y = rect.origin.y + screen_gap + cell_height * row + window_gap;
+                column += 1;
+                if column == columns {
+                    column = 0;
+                    row += 1;
+                }
+                LayoutAction::Position {
+                    id: window.id(),
+                    rect: euclid::rect(x, y, w, h),
+                }
+            })
+            .collect()
     }
 }
 
@@ -128,10 +147,10 @@ pub struct SplitLayout {
 }
 
 impl LayoutAlgorithm for SplitLayout {
-    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
-        Box::new(self.clone())
+    fn to_layout_step(&self) -> LayoutStep {
+        LayoutStep(Box::new(self.clone()))
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {
+    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
         let mut rect_1 = *rect;
         let mut rect_2 = *rect;
 
@@ -162,8 +181,9 @@ impl LayoutAlgorithm for SplitLayout {
             }
         }
 
-        self.layout_1.layout(&rect_1, windows);
-        self.layout_2.layout(&rect_2, windows);
+        let mut result = self.layout_1.layout(&rect_1, windows);
+        result.append(&mut self.layout_2.layout(&rect_1, windows));
+        result
     }
 }
 
@@ -177,10 +197,12 @@ pub struct TabbedLayout {
 }
 
 impl LayoutAlgorithm for TabbedLayout {
-    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
-        Box::new(self.clone())
+    fn to_layout_step(&self) -> LayoutStep {
+        LayoutStep(Box::new(self.clone()))
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {}
+    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
+        Default::default()
+    }
 }
 
 //
@@ -194,17 +216,19 @@ pub struct LinearLayout {
 }
 
 impl LayoutAlgorithm for LinearLayout {
-    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
-        Box::new(self.clone())
+    fn to_layout_step(&self) -> LayoutStep {
+        LayoutStep(Box::new(self.clone()))
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {}
+    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
+        Default::default()
+    }
 }
 
 //
 //------------------------------------------------------------------
 //
 
-pub type LayoutFactory = Fn(&LayoutRect, &[&mut Window]) -> usize;
+pub type LayoutFactory = Fn(&LayoutRect, &[&Window]) -> usize;
 
 // Selects a layout dynamically
 #[derive(Clone)]
@@ -272,11 +296,11 @@ impl DynamicLayout {
 }
 
 impl LayoutAlgorithm for DynamicLayout {
-    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
-        Box::new(self.clone())
+    fn to_layout_step(&self) -> LayoutStep {
+        LayoutStep(Box::new(self.clone()))
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {
-        self.algorithms[(self.layout_factory)(rect, windows)].layout(rect, windows);
+    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
+        self.algorithms[(self.layout_factory)(rect, windows)].layout(rect, windows)
     }
 }
 
@@ -319,15 +343,16 @@ impl PredicateSelector {
 }
 
 impl LayoutAlgorithm for PredicateSelector {
-    fn boxed_clone(&self) -> Box<LayoutAlgorithm> {
-        Box::new(self.clone())
+    fn to_layout_step(&self) -> LayoutStep {
+        LayoutStep(Box::new(self.clone()))
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&mut Window]) {
+    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
         // let filtered_windows = windows
         //     .iter()
         //     .enumerate()
         //     .filter(|(i, w)| (self.predicate)(rect, *i, *w))
         //     .collect::<Vec<_>>();
         // (self.layout).layout(rect, &filtered_windows, result);
+        Default::default()
     }
 }

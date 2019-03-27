@@ -1,12 +1,15 @@
 use super::window_manager::connection;
+use super::layout::LayoutRect;
+
+pub type Id = xcb::Window;
 
 pub struct Window {
-    id: xcb::Window,
+    id: Id,
     is_mapped: bool,
 }
 
 impl Window {
-    pub fn new(id: xcb::Window) -> Window {
+    pub fn new(id: Id) -> Window {
         Window {
             id,
             is_mapped: false,
@@ -33,12 +36,12 @@ impl Window {
         self.is_mapped = false;
     }
 
-    pub fn set_geometry(&self, x: u32, y: u32, w: u32, h: u32) {
+    pub fn set_geometry(&self, rect: &LayoutRect) {
         let values = [
-            (xcb::xproto::CONFIG_WINDOW_X as u16, x),
-            (xcb::xproto::CONFIG_WINDOW_Y as u16, y),
-            (xcb::xproto::CONFIG_WINDOW_WIDTH as u16, w),
-            (xcb::xproto::CONFIG_WINDOW_HEIGHT as u16, h),
+            (xcb::xproto::CONFIG_WINDOW_X as u16, rect.origin.x as u32),
+            (xcb::xproto::CONFIG_WINDOW_Y as u16, rect.origin.y as u32),
+            (xcb::xproto::CONFIG_WINDOW_WIDTH as u16, rect.size.width as u32),
+            (xcb::xproto::CONFIG_WINDOW_HEIGHT as u16, rect.size.height as u32),
         ];
         xcb::xproto::configure_window(&connection(), self.id, &values);
     }

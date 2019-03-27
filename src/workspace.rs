@@ -1,10 +1,9 @@
-use super::{layout::LayoutAlgorithm, window::Window};
-use std::rc::Rc;
+use super::{layout::LayoutStep, window, window::Window};
 
 pub struct Workspace {
     pub name: String,
-    pub layout_algorithm: Rc<LayoutAlgorithm>,
-    pub windows: Vec<xcb::Window>,
+    pub layout: LayoutStep,
+    pub windows: Vec<window::Id>,
 }
 
 impl Workspace {
