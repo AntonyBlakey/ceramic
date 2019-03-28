@@ -2,7 +2,7 @@ use super::{layout, window};
 
 pub struct Workspace {
     pub name: String,
-    pub layout: layout::Step,
+    pub layout: Box<layout::Layout>,
     pub saved_windows: Vec<window::Id>,
     pub windows: Vec<window::Id>,
 }

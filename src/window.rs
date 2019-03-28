@@ -30,7 +30,7 @@ impl Window {
 
     pub fn set_is_focused(&self, is_focused: bool) {
         {
-            let values = [(xcb::xproto::CW_BORDER_PIXEL, 0x00FF00)];
+            let values = [(xcb::xproto::CW_BORDER_PIXEL, 0xff0000)];
             xcb::xproto::change_window_attributes(&connection(), self.id, &values);
         }
         {

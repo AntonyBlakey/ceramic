@@ -76,12 +76,12 @@ impl WindowManager {
         }
     }
 
-    fn add_workspace(&mut self, name: &str, layout: layout::Step) {
+    fn add_workspace<A: Layout + Clone + 'static>(&mut self, name: &str, layout: A) {
         self.workspaces.push(workspace::Workspace {
             name: String::from(name),
             saved_windows: Default::default(),
             windows: Default::default(),
-            layout,
+            layout: Box::new(layout),
         })
     }
 
