@@ -1,11 +1,13 @@
-use super::{layout, layout::{LayoutStep, LayoutAlgorithm, LayoutAction}, window, window::Window, workspace::Workspace};
+use super::layout::Layout; // Trait import for function access
+use super::{artist, layout, window, workspace};
 use std::{collections::HashMap, rc::Rc};
 
 #[derive(Default)]
 pub struct WindowManager {
-    pub windows: HashMap<window::Id, Window>,
-    pub workspaces: Vec<Workspace>,
-    pub current_workspace: usize,
+    windows: HashMap<window::Id, window::Window>,
+    decorators: HashMap<window::Id, Decorator>,
+    workspaces: Vec<workspace::Workspace>,
+    current_workspace: usize,
 }
 
 static mut CONNECTION: Option<Rc<xcb::Connection>> = None;
@@ -21,11 +23,25 @@ pub fn connection() -> Rc<xcb::Connection> {
 
 pub fn run() {
     let mut wm = WindowManager::default();
-    let layout = layout::GridLayout::default();
     for name in &["a", "s", "d", "f"] {
-        wm.add_workspace(name, layout.to_layout_step());
+        let layout = layout::SpacingLayout::make(
+            5,
+            5,
+            layout::SplitLayout::make_right_to_left(
+                0.75,
+                1,
+                layout::LinearLayout::make_right_to_left(),
+                layout::LinearLayout::make_top_to_bottom(),
+            ),
+        );
+        wm.add_workspace(name, layout);
     }
     wm.main_loop();
+}
+
+struct Decorator {
+    id: window::Id,
+    artist: Rc<artist::Artist>,
 }
 
 impl WindowManager {
@@ -45,12 +61,12 @@ impl WindowManager {
 
         while let Some(e) = connection.wait_for_event() {
             match e.response_type() {
-                xcb::CONFIGURE_REQUEST => self.configure_request(unsafe { xcb::cast_event(&e) }),
-                xcb::MAP_REQUEST => self.map_request(unsafe { xcb::cast_event(&e) }),
                 xcb::CREATE_NOTIFY => self.create_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::DESTROY_NOTIFY => self.destroy_notify(unsafe { xcb::cast_event(&e) }),
+                xcb::CONFIGURE_REQUEST => self.configure_request(unsafe { xcb::cast_event(&e) }),
                 xcb::CONFIGURE_NOTIFY => self.configure_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::PROPERTY_NOTIFY => self.property_notify(unsafe { xcb::cast_event(&e) }),
+                xcb::MAP_REQUEST => self.map_request(unsafe { xcb::cast_event(&e) }),
                 xcb::MAP_NOTIFY => self.map_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::UNMAP_NOTIFY => self.unmap_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::CLIENT_MESSAGE => self.client_message(unsafe { xcb::cast_event(&e) }),
@@ -60,16 +76,18 @@ impl WindowManager {
         }
     }
 
-    fn add_workspace(&mut self, name: &str, layout: LayoutStep) {
-        self.workspaces.push(Workspace {
+    fn add_workspace(&mut self, name: &str, layout: layout::Step) {
+        self.workspaces.push(workspace::Workspace {
             name: String::from(name),
+            saved_windows: Default::default(),
             windows: Default::default(),
             layout,
         })
     }
 
     fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
-        self.windows.insert(e.window(), Window::new(e.window()));
+        self.windows
+            .insert(e.window(), window::Window::new(e.window()));
         let window = &self.windows[&e.window()];
         self.workspaces[self.current_workspace].add_window(window);
     }
@@ -83,11 +101,21 @@ impl WindowManager {
     }
 
     fn configure_request(&mut self, e: &xcb::ConfigureRequestEvent) {
-        println!("Configure Request: {:x}", e.window());
+        println!(
+            "Configure Request: {:x} {} {} {} {} {} {}",
+            e.window(),
+            e.x(),
+            e.y(),
+            e.width(),
+            e.height(),
+            e.border_width(),
+            e.value_mask()
+        );
     }
 
     fn map_request(&mut self, e: &xcb::MapRequestEvent) {
         self.windows[&e.window()].map();
+        self.windows[&e.window()].set_is_focused(true);
     }
 
     fn configure_notify(&mut self, e: &xcb::ConfigureNotifyEvent) {
@@ -114,16 +142,21 @@ impl WindowManager {
 
     fn update_layout(&mut self) {
         let ws = &self.workspaces[self.current_workspace];
-        let windows: Vec<&Window> = ws.windows.iter().map(|id|&self.windows[id]).collect();
+        let windows: Vec<&window::Window> = ws
+            .windows
+            .iter()
+            .map(|id| &self.windows[id])
+            .filter(|w| w.is_mapped())
+            .collect();
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
-        let actions = ws
-            .layout
-            .layout(&euclid::rect(0, 0, screen.width_in_pixels(), screen.height_in_pixels()), &windows);
+        let actions = ws.layout.layout(
+            &euclid::rect(0, 0, screen.width_in_pixels(), screen.height_in_pixels()),
+            &windows,
+        );
         for a in actions {
             match a {
-                LayoutAction::Position { id, rect } =>
-                    self.windows[&id].set_geometry(&rect),
+                layout::Action::Position { id, rect } => self.windows[&id].set_geometry(&rect),
                 _ => (),
             }
         }

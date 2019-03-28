@@ -1,16 +1,17 @@
-use super::{layout::LayoutStep, window, window::Window};
+use super::{layout, window};
 
 pub struct Workspace {
     pub name: String,
-    pub layout: LayoutStep,
+    pub layout: layout::Step,
+    pub saved_windows: Vec<window::Id>,
     pub windows: Vec<window::Id>,
 }
 
 impl Workspace {
-    pub fn add_window(&mut self, window: &Window) {
+    pub fn add_window(&mut self, window: &window::Window) {
         self.windows.push(window.id());
     }
-    pub fn remove_window(&mut self, window: &Window) {
+    pub fn remove_window(&mut self, window: &window::Window) {
         self.windows.remove_item(&window.id());
     }
 }

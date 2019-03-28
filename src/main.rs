@@ -1,5 +1,6 @@
-#![feature(vec_remove_item)]
+#![feature(vec_remove_item, trait_alias)]
 
+mod artist;
 mod layout;
 mod window;
 mod window_manager;

@@ -1,8 +1,7 @@
-use super::{window, window::Window};
-use std::clone::Clone;
-use std::rc::Rc;
+use super::{artist, window};
+use std::{clone::Clone, rc::Rc};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Axis {
     X,
     Y,
@@ -29,7 +28,7 @@ impl Axis {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Direction {
     Increasing,
     Decreasing,
@@ -37,31 +36,29 @@ pub enum Direction {
 
 pub type LayoutRect = euclid::Rect<u16>;
 
-pub trait LayoutAlgorithm {
-    fn to_layout_step(&self) -> LayoutStep;
-    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction>;
+pub trait Layout {
+    fn to_layout_step(&self) -> Step;
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action>;
 }
 
-pub struct LayoutStep(Box<LayoutAlgorithm>);
+pub struct Step(Box<Layout>);
 
-impl std::ops::Deref for LayoutStep {
-    type Target = Box<LayoutAlgorithm>;
+impl std::ops::Deref for Step {
+    type Target = Box<Layout>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl Clone for LayoutStep {
-    fn clone(&self) -> LayoutStep {
+impl Clone for Step {
+    fn clone(&self) -> Step {
         self.0.to_layout_step()
     }
 }
 
-pub trait Artist {}
-
-pub enum LayoutAction {
+pub enum Action {
     Draw {
-        artist: Rc<Artist>,
+        artist: Rc<artist::Artist>,
         rect: LayoutRect,
     },
     Position {
@@ -75,27 +72,67 @@ pub enum LayoutAction {
 //
 
 #[derive(Clone)]
-pub struct GridLayout {
-    major_axis: Axis,
-    major_direction: Direction,
-    minor_direction: Direction,
+pub struct SpacingLayout {
+    screen_gap: u16,
+    window_gap: u16,
+    layout: Step,
 }
 
-impl Default for GridLayout {
-    fn default() -> GridLayout {
-        GridLayout {
-            major_axis: Axis::X,
-            major_direction: Direction::Increasing,
-            minor_direction: Direction::Increasing,
+impl SpacingLayout {
+    pub fn make(screen_gap: u16, window_gap: u16, layout: Step) -> Step {
+        SpacingLayout {
+            screen_gap,
+            window_gap,
+            layout,
         }
+        .to_layout_step()
     }
 }
 
-impl LayoutAlgorithm for GridLayout {
-    fn to_layout_step(&self) -> LayoutStep {
-        LayoutStep(Box::new(self.clone()))
+impl Layout for SpacingLayout {
+    fn to_layout_step(&self) -> Step {
+        Step(Box::new(self.clone()))
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+        let mut r = *rect;
+        r.origin.x += self.screen_gap;
+        r.origin.y += self.screen_gap;
+        r.size.width -= 2 * self.screen_gap;
+        r.size.height -= 2 * self.screen_gap;
+        let mut actions = self.layout.layout(&r, windows);
+        for a in &mut actions {
+            match a {
+                Action::Position { id: _, rect: r } => {
+                    r.origin.x += self.window_gap;
+                    r.origin.y += self.window_gap;
+                    r.size.width -= 2 * self.window_gap;
+                    r.size.height -= 2 * self.window_gap;
+                }
+                _ => {}
+            }
+        }
+        actions
+    }
+}
+
+//
+//------------------------------------------------------------------
+//
+
+#[derive(Clone)]
+pub struct GridLayout {}
+
+impl GridLayout {
+    pub fn make() -> Step {
+        GridLayout {}.to_layout_step()
+    }
+}
+
+impl Layout for GridLayout {
+    fn to_layout_step(&self) -> Step {
+        Step(Box::new(self.clone()))
+    }
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
         if windows.is_empty() {
             return Default::default();
         }
@@ -124,7 +161,7 @@ impl LayoutAlgorithm for GridLayout {
                     column = 0;
                     row += 1;
                 }
-                LayoutAction::Position {
+                Action::Position {
                     id: window.id(),
                     rect: euclid::rect(x, y, w, h),
                 }
@@ -139,51 +176,118 @@ impl LayoutAlgorithm for GridLayout {
 
 #[derive(Clone)]
 pub struct SplitLayout {
-    ratio: f64,
     axis: Axis,
     direction: Direction,
-    layout_1: LayoutStep,
-    layout_2: LayoutStep,
+    ratio: f64,
+    count: usize,
+    layout_1: Step,
+    layout_2: Step,
 }
 
-impl LayoutAlgorithm for SplitLayout {
-    fn to_layout_step(&self) -> LayoutStep {
-        LayoutStep(Box::new(self.clone()))
+impl SplitLayout {
+    pub fn make(
+        axis: Axis,
+        direction: Direction,
+        ratio: f64,
+        count: usize,
+        layout_1: Step,
+        layout_2: Step,
+    ) -> Step {
+        SplitLayout {
+            axis,
+            direction,
+            ratio,
+            count,
+            layout_1,
+            layout_2,
+        }
+        .to_layout_step()
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
+
+    pub fn make_left_to_right(ratio: f64, count: usize, layout_1: Step, layout_2: Step) -> Step {
+        Self::make(
+            Axis::X,
+            Direction::Increasing,
+            ratio,
+            count,
+            layout_1,
+            layout_2,
+        )
+    }
+
+    pub fn make_right_to_left(ratio: f64, count: usize, layout_1: Step, layout_2: Step) -> Step {
+        Self::make(
+            Axis::X,
+            Direction::Decreasing,
+            ratio,
+            count,
+            layout_1,
+            layout_2,
+        )
+    }
+
+    pub fn make_top_to_bottom(ratio: f64, count: usize, layout_1: Step, layout_2: Step) -> Step {
+        Self::make(
+            Axis::Y,
+            Direction::Increasing,
+            ratio,
+            count,
+            layout_1,
+            layout_2,
+        )
+    }
+
+    pub fn make_bottom_to_top(ratio: f64, count: usize, layout_1: Step, layout_2: Step) -> Step {
+        Self::make(
+            Axis::Y,
+            Direction::Decreasing,
+            ratio,
+            count,
+            layout_1,
+            layout_2,
+        )
+    }
+}
+
+impl Layout for SplitLayout {
+    fn to_layout_step(&self) -> Step {
+        Step(Box::new(self.clone()))
+    }
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+        if windows.is_empty() {
+            return Default::default();
+        }
+
         let mut rect_1 = *rect;
         let mut rect_2 = *rect;
 
-        match (&self.axis, &self.direction) {
-            (Axis::X, Direction::Increasing) => {
-                let split = (rect.size.width as f64 * self.ratio).floor() as u16;
-                rect_1.size.width = split;
-                rect_2.origin.x += split;
-                rect_2.size.width -= split;
+        match self.axis {
+            Axis::X => {
+                rect_1.size.width = (rect.size.width as f64 * self.ratio).floor() as u16;
+                rect_2.size.width = rect.size.width - rect_1.size.width;
+                match self.direction {
+                    Direction::Increasing => rect_2.origin.x = rect_1.max_x(),
+                    Direction::Decreasing => rect_1.origin.x = rect_2.max_x(),
+                }
             }
-            (Axis::X, Direction::Decreasing) => {
-                let split = (rect.size.width as f64 * self.ratio).floor() as u16;
-                rect_2.size.width = split;
-                rect_1.origin.x += split;
-                rect_1.size.width -= split;
-            }
-            (Axis::Y, Direction::Increasing) => {
-                let split = (rect.size.height as f64 * self.ratio).floor() as u16;
-                rect_1.size.height = split;
-                rect_2.origin.y += split;
-                rect_2.size.height -= split;
-            }
-            (Axis::Y, Direction::Decreasing) => {
-                let split = (rect.size.height as f64 * self.ratio).floor() as u16;
-                rect_2.size.height = split;
-                rect_1.origin.y += split;
-                rect_1.size.height -= split;
+            Axis::Y => {
+                rect_1.size.height = (rect.size.height as f64 * self.ratio).floor() as u16;
+                rect_2.size.height = rect.size.height - rect_1.size.height;
+                match self.direction {
+                    Direction::Increasing => rect_2.origin.y = rect_1.max_y(),
+                    Direction::Decreasing => rect_1.origin.y = rect_2.max_y(),
+                }
             }
         }
 
-        let mut result = self.layout_1.layout(&rect_1, windows);
-        result.append(&mut self.layout_2.layout(&rect_1, windows));
-        result
+        if windows.len() > self.count {
+            let (w1, w2) = windows.split_at(self.count);
+            let mut result = self.layout_1.layout(&rect_1, w1);
+            result.append(&mut self.layout_2.layout(&rect_2, w2));
+            result
+        } else {
+            self.layout_1.layout(&rect_1, windows)
+        }
     }
 }
 
@@ -192,15 +296,41 @@ impl LayoutAlgorithm for SplitLayout {
 //
 
 #[derive(Clone)]
-pub struct TabbedLayout {
-    direction: Direction,
+pub struct StackedLayout {}
+
+impl StackedLayout {
+    pub fn make() -> Step {
+        StackedLayout {}.to_layout_step()
+    }
 }
 
-impl LayoutAlgorithm for TabbedLayout {
-    fn to_layout_step(&self) -> LayoutStep {
-        LayoutStep(Box::new(self.clone()))
+impl Layout for StackedLayout {
+    fn to_layout_step(&self) -> Step {
+        Step(Box::new(self.clone()))
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+        Default::default()
+    }
+}
+
+//
+//------------------------------------------------------------------
+//
+
+#[derive(Clone)]
+pub struct TabbedLayout {}
+
+impl TabbedLayout {
+    pub fn make() -> Step {
+        TabbedLayout {}.to_layout_step()
+    }
+}
+
+impl Layout for TabbedLayout {
+    fn to_layout_step(&self) -> Step {
+        Step(Box::new(self.clone()))
+    }
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
         Default::default()
     }
 }
@@ -215,12 +345,61 @@ pub struct LinearLayout {
     direction: Direction,
 }
 
-impl LayoutAlgorithm for LinearLayout {
-    fn to_layout_step(&self) -> LayoutStep {
-        LayoutStep(Box::new(self.clone()))
+impl LinearLayout {
+    pub fn make(axis: Axis, direction: Direction) -> Step {
+        LinearLayout { axis, direction }.to_layout_step()
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
-        Default::default()
+
+    pub fn make_left_to_right() -> Step {
+        Self::make(Axis::X, Direction::Increasing)
+    }
+
+    pub fn make_right_to_left() -> Step {
+        Self::make(Axis::X, Direction::Decreasing)
+    }
+
+    pub fn make_top_to_bottom() -> Step {
+        Self::make(Axis::Y, Direction::Increasing)
+    }
+
+    pub fn make_bottom_to_top() -> Step {
+        Self::make(Axis::Y, Direction::Decreasing)
+    }
+}
+
+impl Layout for LinearLayout {
+    fn to_layout_step(&self) -> Step {
+        Step(Box::new(self.clone()))
+    }
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+        let mut result = Vec::with_capacity(windows.len());
+
+        match self.axis {
+            Axis::X => {
+                let mut r = *rect;
+                r.size.width = r.size.width / windows.len() as u16;
+                for w in windows {
+                    result.push(Action::Position {
+                        id: w.id(),
+                        rect: r,
+                    });
+                    r.origin.x += r.size.width;
+                }
+            }
+            Axis::Y => {
+                let mut r = *rect;
+                r.size.height = r.size.height / windows.len() as u16;
+                for w in windows {
+                    result.push(Action::Position {
+                        id: w.id(),
+                        rect: r,
+                    });
+                    r.origin.y += r.size.height;
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -228,28 +407,25 @@ impl LayoutAlgorithm for LinearLayout {
 //------------------------------------------------------------------
 //
 
-pub type LayoutFactory = Fn(&LayoutRect, &[&Window]) -> usize;
+pub type LayoutFactory = Fn(&LayoutRect, &[&window::Window]) -> usize;
 
 // Selects a layout dynamically
 #[derive(Clone)]
 pub struct DynamicLayout {
     layout_factory: Rc<LayoutFactory>,
-    algorithms: Vec<LayoutStep>,
+    algorithms: Vec<Step>,
 }
 
 impl DynamicLayout {
-    pub fn new(layout_factory: &Rc<LayoutFactory>, algorithms: &[LayoutStep]) -> DynamicLayout {
+    pub fn make(layout_factory: &Rc<LayoutFactory>, algorithms: &[Step]) -> Step {
         DynamicLayout {
             layout_factory: layout_factory.clone(),
             algorithms: algorithms.iter().map(|x| x.clone()).collect(),
         }
+        .to_layout_step()
     }
 
-    pub fn switch_on_window_count(
-        count: usize,
-        lsmall: &LayoutStep,
-        lbig: &LayoutStep,
-    ) -> DynamicLayout {
+    pub fn switch_on_window_count(count: usize, lsmall: &Step, lbig: &Step) -> Step {
         let layout_factory: Rc<LayoutFactory> = Rc::new(
             move |rect, windows| {
                 if windows.len() <= count {
@@ -259,15 +435,15 @@ impl DynamicLayout {
                 }
             },
         );
-        Self::new(&layout_factory, &[lsmall.clone(), lbig.clone()])
+        Self::make(&layout_factory, &[lsmall.clone(), lbig.clone()])
     }
 
     pub fn switch_on_available_size(
         axis: Axis,
         size_break: u16,
-        lsmall: &LayoutStep,
-        lbig: &LayoutStep,
-    ) -> DynamicLayout {
+        lsmall: &Step,
+        lbig: &Step,
+    ) -> Step {
         let layout_factory: Rc<LayoutFactory> = Rc::new(move |rect, _| {
             if axis.extract_size(rect) < size_break {
                 0
@@ -275,15 +451,10 @@ impl DynamicLayout {
                 1
             }
         });
-        Self::new(&layout_factory, &[lsmall.clone(), lbig.clone()])
+        Self::make(&layout_factory, &[lsmall.clone(), lbig.clone()])
     }
 
-    pub fn switch_on_prorata_size(
-        axis: Axis,
-        size_break: u16,
-        lsmall: &LayoutStep,
-        lbig: &LayoutStep,
-    ) -> DynamicLayout {
+    pub fn switch_on_prorata_size(axis: Axis, size_break: u16, lsmall: &Step, lbig: &Step) -> Step {
         let layout_factory: Rc<LayoutFactory> = Rc::new(move |rect, windows| {
             if (axis.extract_size(rect) / windows.len() as u16) < size_break {
                 0
@@ -291,15 +462,15 @@ impl DynamicLayout {
                 1
             }
         });
-        Self::new(&layout_factory, &[lsmall.clone(), lbig.clone()])
+        Self::make(&layout_factory, &[lsmall.clone(), lbig.clone()])
     }
 }
 
-impl LayoutAlgorithm for DynamicLayout {
-    fn to_layout_step(&self) -> LayoutStep {
-        LayoutStep(Box::new(self.clone()))
+impl Layout for DynamicLayout {
+    fn to_layout_step(&self) -> Step {
+        Step(Box::new(self.clone()))
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
         self.algorithms[(self.layout_factory)(rect, windows)].layout(rect, windows)
     }
 }
@@ -308,51 +479,50 @@ impl LayoutAlgorithm for DynamicLayout {
 //------------------------------------------------------------------
 //
 
-pub type Predicate = Fn(&LayoutRect, usize, &Window) -> bool;
+pub type BoxedPredicate = Box<Fn(&LayoutRect, usize, &window::Window) -> bool>;
 
 #[derive(Clone)]
 pub struct PredicateSelector {
-    predicate: Rc<Predicate>,
-    layout: LayoutStep,
+    predicate: Rc<BoxedPredicate>,
+    layout: Step,
 }
 
 impl PredicateSelector {
-    pub fn passing(predicate: &Rc<Predicate>, layout: LayoutStep) -> PredicateSelector {
+    pub fn passing(predicate: BoxedPredicate, layout: Step) -> Step {
         PredicateSelector {
-            predicate: predicate.clone(),
+            predicate: Rc::new(predicate),
             layout: layout.clone(),
         }
+        .to_layout_step()
     }
 
-    pub fn failing(test: &Rc<Predicate>, layout: LayoutStep) -> PredicateSelector {
-        let t = test.clone();
-        let test: Rc<Predicate> =
-            Rc::new(move |rect, index, window| t(rect, index, window) != true);
-        Self::passing(&test, layout)
+    pub fn failing(test: BoxedPredicate, layout: Step) -> Step {
+        Self::passing(
+            Box::new(move |rect, index, window| !test(rect, index, window)),
+            layout,
+        )
     }
 
-    pub fn first(count: usize, layout: LayoutStep) -> PredicateSelector {
-        let test: Rc<Predicate> = Rc::new(move |_, index, _| index < count);
-        Self::passing(&test, layout)
+    pub fn first(count: usize, layout: Step) -> Step {
+        Self::passing(Box::new(move |_, index, _| index < count), layout)
     }
 
-    pub fn all_but_first(count: usize, layout: LayoutStep) -> PredicateSelector {
-        let test: Rc<Predicate> = Rc::new(move |_, index, _| index >= count);
-        Self::passing(&test, layout)
+    pub fn all_but_first(count: usize, layout: Step) -> Step {
+        Self::passing(Box::new(move |_, index, _| index >= count), layout)
     }
 }
 
-impl LayoutAlgorithm for PredicateSelector {
-    fn to_layout_step(&self) -> LayoutStep {
-        LayoutStep(Box::new(self.clone()))
+impl Layout for PredicateSelector {
+    fn to_layout_step(&self) -> Step {
+        Step(Box::new(self.clone()))
     }
-    fn layout(&self, rect: &LayoutRect, windows: &[&Window]) -> Vec<LayoutAction> {
-        // let filtered_windows = windows
-        //     .iter()
-        //     .enumerate()
-        //     .filter(|(i, w)| (self.predicate)(rect, *i, *w))
-        //     .collect::<Vec<_>>();
-        // (self.layout).layout(rect, &filtered_windows, result);
-        Default::default()
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+        let filtered_windows: Vec<&window::Window> = windows
+            .iter()
+            .enumerate()
+            .filter(|&(i, w)| (self.predicate)(rect, i, w))
+            .map(|(_, &w)| w)
+            .collect();
+        (self.layout).layout(rect, &filtered_windows)
     }
 }
