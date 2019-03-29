@@ -4,7 +4,6 @@ mod artist;
 mod layout;
 mod window;
 mod window_manager;
-mod workspace;
 
 use structopt::StructOpt;
 

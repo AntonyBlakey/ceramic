@@ -28,15 +28,7 @@ impl Window {
         xcb::xproto::map_window(&connection(), self.id);
     }
 
-    pub fn set_is_focused(&self, is_focused: bool) {
-        {
-            let values = [(xcb::xproto::CW_BORDER_PIXEL, 0xff0000)];
-            xcb::xproto::change_window_attributes(&connection(), self.id, &values);
-        }
-        {
-            let values = [(xcb::xproto::CONFIG_WINDOW_BORDER_WIDTH as u16, 2)];
-            xcb::xproto::configure_window(&connection(), self.id, &values);
-        }
+    pub fn set_input_focus(&self) {
         xcb::xproto::set_input_focus(
             &connection(),
             xcb::xproto::INPUT_FOCUS_NONE as u8,
@@ -53,19 +45,39 @@ impl Window {
         self.is_mapped = false;
     }
 
-    pub fn set_geometry(&self, rect: &layout::LayoutRect) {
-        let values = [
-            (xcb::xproto::CONFIG_WINDOW_X as u16, rect.origin.x as u32),
-            (xcb::xproto::CONFIG_WINDOW_Y as u16, rect.origin.y as u32),
-            (
-                xcb::xproto::CONFIG_WINDOW_WIDTH as u16,
-                rect.size.width as u32,
-            ),
-            (
-                xcb::xproto::CONFIG_WINDOW_HEIGHT as u16,
-                rect.size.height as u32,
-            ),
-        ];
-        xcb::xproto::configure_window(&connection(), self.id, &values);
+    pub fn set_geometry(&self, rect: &layout::LayoutRect, border_width: u16, border_color: u32) {
+        if border_width > 0 {
+            xcb::xproto::change_window_attributes(
+                &connection(),
+                self.id,
+                &[(xcb::xproto::CW_BORDER_PIXEL, border_color)],
+            );
+        }
+        xcb::xproto::configure_window(
+            &connection(),
+            self.id,
+            &[
+                (
+                    xcb::xproto::CONFIG_WINDOW_X as u16,
+                    (rect.origin.x - border_width) as u32,
+                ),
+                (
+                    xcb::xproto::CONFIG_WINDOW_Y as u16,
+                    (rect.origin.y - border_width) as u32,
+                ),
+                (
+                    xcb::xproto::CONFIG_WINDOW_WIDTH as u16,
+                    (rect.size.width + 2 * border_width) as u32,
+                ),
+                (
+                    xcb::xproto::CONFIG_WINDOW_HEIGHT as u16,
+                    (rect.size.height + 2 * border_width) as u32,
+                ),
+                (
+                    xcb::xproto::CONFIG_WINDOW_BORDER_WIDTH as u16,
+                    border_width as u32,
+                ),
+            ],
+        );
     }
 }

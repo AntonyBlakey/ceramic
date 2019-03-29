@@ -1,13 +1,20 @@
 use super::layout::Layout; // Trait import for function access
-use super::{artist, layout, window, workspace};
-use std::{collections::HashMap, rc::Rc};
+use super::{artist, layout, window};
+use std::{clone::Clone, collections::HashMap, rc::Rc};
 
 #[derive(Default)]
 pub struct WindowManager {
     windows: HashMap<window::Id, window::Window>,
-    decorators: HashMap<window::Id, Decorator>,
-    workspaces: Vec<workspace::Workspace>,
+    // decorators: HashMap<window::Id, Decorator>,
+    workspaces: Vec<Workspace>,
     current_workspace: usize,
+}
+
+pub struct Workspace {
+    pub name: String,
+    pub layout: Box<layout::Layout>,
+    pub focused_window: Option<window::Id>,
+    pub windows: Vec<window::Id>,
 }
 
 static mut CONNECTION: Option<Rc<xcb::Connection>> = None;
@@ -23,18 +30,22 @@ pub fn connection() -> Rc<xcb::Connection> {
 
 pub fn run() {
     let mut wm = WindowManager::default();
-    for name in &["a", "s", "d", "f"] {
-        let layout = layout::SpacingLayout::make(
+    let layout = layout::root(layout::focus_border(
+        1,
+        (0, 255, 0),
+        layout::spacing(
             5,
             5,
-            layout::SplitLayout::make_right_to_left(
+            layout::split_right_to_left(
                 0.75,
                 1,
-                layout::LinearLayout::make_right_to_left(),
-                layout::LinearLayout::make_top_to_bottom(),
+                layout::linear_right_to_left(),
+                layout::linear_top_to_bottom(),
             ),
-        );
-        wm.add_workspace(name, layout);
+        ),
+    ));
+    for name in &["0", "1", "2", "3"] {
+        wm.add_workspace(name, layout.clone());
     }
     wm.main_loop();
 }
@@ -76,31 +87,44 @@ impl WindowManager {
         }
     }
 
+    pub fn focus_down_stack(&mut self) {}
+    pub fn focus_up_stack(&mut self) {}
+    pub fn focus_on_selected(&mut self) {}
+    pub fn swap_focused_with_selected(&mut self) {}
+    pub fn move_focused_window_up_stack(&mut self) {}
+    pub fn move_focused_window_down_stack(&mut self) {}
+    pub fn move_focused_window_to_head(&mut self) {}
+
     fn add_workspace<A: Layout + Clone + 'static>(&mut self, name: &str, layout: A) {
-        self.workspaces.push(workspace::Workspace {
+        self.workspaces.push(Workspace {
             name: String::from(name),
-            saved_windows: Default::default(),
             windows: Default::default(),
+            focused_window: None,
             layout: Box::new(layout),
         })
     }
 
     fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
+        // TODO: don't blindly insert at the end
+        // TODO: apply rules
         self.windows
             .insert(e.window(), window::Window::new(e.window()));
-        let window = &self.windows[&e.window()];
-        self.workspaces[self.current_workspace].add_window(window);
+        self.workspaces[self.current_workspace]
+            .windows
+            .push(e.window());
     }
 
     fn destroy_notify(&mut self, e: &xcb::DestroyNotifyEvent) {
         let window = &self.windows[&e.window()];
         for ws in &mut self.workspaces {
-            ws.remove_window(window);
+            ws.windows.remove_item(&window.id());
         }
         self.windows.remove(&e.window());
     }
 
     fn configure_request(&mut self, e: &xcb::ConfigureRequestEvent) {
+        // TODO: apply rules
+        // If the window isn't managed by us then act on the request for frame at least
         println!(
             "Configure Request: {:x} {} {} {} {} {} {}",
             e.window(),
@@ -113,9 +137,17 @@ impl WindowManager {
         );
     }
 
+    fn switch_to_workspace(&mut self) {
+        // 1. Copy current workspace into temp
+        // 2. Unmap all windows
+        // 3. Overwrite workspace from temp
+        // 4. Map new workspace's windows, set input focus, update layout
+
+    }
+
     fn map_request(&mut self, e: &xcb::MapRequestEvent) {
         self.windows[&e.window()].map();
-        self.windows[&e.window()].set_is_focused(true);
+        self.windows[&e.window()].set_input_focus();
     }
 
     fn configure_notify(&mut self, e: &xcb::ConfigureNotifyEvent) {
@@ -133,6 +165,7 @@ impl WindowManager {
 
     fn unmap_notify(&mut self, e: &xcb::UnmapNotifyEvent) {
         self.windows.get_mut(&e.window()).unwrap().unmap_notify();
+        // TODO: move focus if required
         self.update_layout();
     }
 
@@ -156,7 +189,12 @@ impl WindowManager {
         );
         for a in actions {
             match a {
-                layout::Action::Position { id, rect } => self.windows[&id].set_geometry(&rect),
+                layout::Action::Position {
+                    id,
+                    rect,
+                    border_width,
+                    border_color,
+                } => self.windows[&id].set_geometry(&rect, border_width, border_color),
                 _ => (),
             }
         }
