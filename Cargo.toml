@@ -19,6 +19,7 @@ json5 = "~0.2.4"
 regex = "~1.1.2"
 euclid = "~0.19.6"
 itertools = "~0.8"
+lazy_static = "*"
 xcb = "~0.8.2"
 x11 = { version = "~2.18.1", features = ["xlib"] }
 xkbcommon = { version = "~0.4", features = ["x11"] }

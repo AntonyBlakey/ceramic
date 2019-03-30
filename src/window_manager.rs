@@ -1,5 +1,5 @@
 use super::layout::Layout; // Trait import for function access
-use super::{artist, layout, window};
+use super::{artist, layout, window, connection::*};
 use std::{clone::Clone, collections::HashMap, rc::Rc};
 
 #[derive(Default)]
@@ -17,35 +17,25 @@ pub struct Workspace {
     pub windows: Vec<window::Id>,
 }
 
-static mut CONNECTION: Option<Rc<xcb::Connection>> = None;
-pub fn connection() -> Rc<xcb::Connection> {
-    unsafe {
-        if CONNECTION.is_none() {
-            let (connection, _screen_number) = xcb::Connection::connect(None).unwrap();
-            CONNECTION = Some(Rc::new(connection));
-        }
-        CONNECTION.clone().unwrap()
-    }
+fn standard_layout_root<A: Default + Layout>(child: A) -> layout::LayoutRoot<A> {
+    let mut root = layout::root(child);
+    root.focus_border_width = 1;
+    root.focus_border_color = (0, 255, 0);
+    root.screen_gap = 5;
+    root.window_gap = 5;
+    root
 }
 
 pub fn run() {
     let mut wm = WindowManager::default();
-    let layout = layout::root(layout::focus_border(
+    let layout = standard_layout_root(layout::split_right_to_left(
+        0.75,
         1,
-        (0, 255, 0),
-        layout::spacing(
-            5,
-            5,
-            layout::split_right_to_left(
-                0.75,
-                1,
-                layout::linear_right_to_left(),
-                layout::linear_top_to_bottom(),
-            ),
-        ),
+        layout::linear_right_to_left(),
+        layout::linear_top_to_bottom(),
     ));
-    for name in &["0", "1", "2", "3"] {
-        wm.add_workspace(name, layout.clone());
+    for i in 1..=9 {
+        wm.add_workspace(&format!("{}", i), layout.clone());
     }
     wm.main_loop();
 }
@@ -67,6 +57,7 @@ impl WindowManager {
         xcb::change_window_attributes_checked(&connection, screen.root(), &values)
             .request_check()
             .expect("Cannot install as window manager");
+        self.set_initial_root_window_properties();
 
         // TODO: process all the pre-existing windows
 
@@ -94,6 +85,67 @@ impl WindowManager {
     pub fn move_focused_window_up_stack(&mut self) {}
     pub fn move_focused_window_down_stack(&mut self) {}
     pub fn move_focused_window_to_head(&mut self) {}
+
+    fn set_initial_root_window_properties(&self) {
+        let connection = connection();
+        let screen = connection.get_setup().roots().nth(0).unwrap();
+        let check_window_id = connection.generate_id();
+        xcb::create_window(
+            &connection,
+            xcb::COPY_FROM_PARENT as u8,
+            check_window_id,
+            screen.root(),
+            -100,
+            -100,
+            1,
+            1,
+            0,
+            xcb::WINDOW_CLASS_INPUT_OUTPUT as u16,
+            screen.root_visual(),
+            &[(xcb::CW_OVERRIDE_REDIRECT, 1)],
+        );
+        set_string_property(check_window_id, *ATOM__NET_WM_NAME, "ceramic");
+        set_window_property(
+            check_window_id,
+            *ATOM__NET_SUPPORTING_WM_CHECK,
+            check_window_id,
+        );
+        set_window_property(
+            screen.root(),
+            *ATOM__NET_SUPPORTING_WM_CHECK,
+            check_window_id,
+        );
+        set_cardinal_property(screen.root(), *ATOM__NET_CURRENT_DESKTOP, 0);
+        set_cardinal_property(
+            screen.root(),
+            *ATOM__NET_NUMBER_OF_DESKTOPS,
+            self.workspaces.len() as u32,
+        );
+        set_strings_property(
+            screen.root(),
+            *ATOM__NET_DESKTOP_NAMES,
+            &self
+                .workspaces
+                .iter()
+                .map(|ws| ws.name.as_str())
+                .collect::<Vec<_>>(),
+        );
+        set_atoms_property(
+            screen.root(),
+            *ATOM__NET_SUPPORTED,
+            &[
+                *ATOM__NET_SUPPORTING_WM_CHECK,
+                *ATOM__NET_WM_NAME,
+                *ATOM__NET_WM_DESKTOP,
+                *ATOM__NET_WM_STRUT,
+                *ATOM__NET_NUMBER_OF_DESKTOPS,
+                *ATOM__NET_CURRENT_DESKTOP,
+                *ATOM__NET_DESKTOP_NAMES,
+                *ATOM__NET_ACTIVE_WINDOW,
+            ],
+        );
+        connection.flush();
+    }
 
     fn add_workspace<A: Layout + Clone + 'static>(&mut self, name: &str, layout: A) {
         self.workspaces.push(Workspace {

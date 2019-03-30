@@ -1,5 +1,5 @@
-use super::{artist, window, window_manager};
-use std::{collections::HashMap, rc::Rc};
+use super::{artist, window, connection::*};
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Axis {
@@ -65,81 +65,102 @@ pub enum Action {
     },
 }
 
-pub fn root<A: Default + Layout>() -> LayoutRoot<A> {
-    Default::default()
-}
-
-pub fn spacing<A: Default + Layout>() -> SpacingLayout<A> {
-    Default::default()
-}
-
-pub fn focus_border<A: Default + Layout>() -> AddFocusBorder<A> {
-    Default::default()
+pub fn root<A: Default + Layout>(child: A) -> LayoutRoot<A> {
+    LayoutRoot {
+        child: child,
+        ..Default::default()
+    }
 }
 
 pub fn grid() -> GridLayout {
     Default::default()
 }
 
-pub fn linear() -> LinearLayout {
-    Default::default()
-}
-
-pub fn split<A: Default + Layout, B: Default + Layout>() -> SplitLayout<A, B> {
-    Default::default()
-}
-
-//
-//------------------------------------------------------------------
-//
-
-#[derive(Clone, Default)]
-pub struct SpacingLayout<A: Default> {
-    screen_gap: u16,
-    window_gap: u16,
-    child: A,
-}
-
-impl<A: Default> SpacingLayout<A> {
-    pub fn set_screen_gap(mut self, screen_gap: u16) -> Self {
-        self.screen_gap = screen_gap;
-        self
-    }
-    pub fn set_window_gap(mut self, window_gap: u16) -> Self {
-        self.screen_gap = window_gap;
-        self
-    }
-    pub fn set_child(mut self, child: A) -> Self {
-        self.child = child;
-        self
+pub fn linear_left_to_right() -> LinearLayout {
+    LinearLayout {
+        direction: Direction::Increasing,
+        axis: Axis::X,
     }
 }
 
-impl<A: Default + Layout> Layout for SpacingLayout<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
-        let mut r = *rect;
-        r.origin.x += self.screen_gap;
-        r.origin.y += self.screen_gap;
-        r.size.width -= 2 * self.screen_gap;
-        r.size.height -= 2 * self.screen_gap;
-        let mut actions = self.child.layout(&r, windows);
-        for a in &mut actions {
-            match a {
-                Action::Position {
-                    id: _,
-                    rect: r,
-                    border_width: _,
-                    border_color: _,
-                } => {
-                    r.origin.x += self.window_gap;
-                    r.origin.y += self.window_gap;
-                    r.size.width -= 2 * self.window_gap;
-                    r.size.height -= 2 * self.window_gap;
-                }
-                _ => {}
-            }
-        }
-        actions
+pub fn linear_right_to_left() -> LinearLayout {
+    LinearLayout {
+        direction: Direction::Decreasing,
+        axis: Axis::X,
+    }
+}
+
+pub fn linear_top_to_bottom() -> LinearLayout {
+    LinearLayout {
+        direction: Direction::Increasing,
+        axis: Axis::Y,
+    }
+}
+
+pub fn linear_bottom_to_top() -> LinearLayout {
+    LinearLayout {
+        direction: Direction::Decreasing,
+        axis: Axis::Y,
+    }
+}
+
+pub fn split_left_to_right<A: Default + Layout, B: Default + Layout>(
+    ratio: f64,
+    count: usize,
+    child_a: A,
+    child_b: B,
+) -> SplitLayout<A, B> {
+    SplitLayout {
+        direction: Direction::Increasing,
+        axis: Axis::X,
+        ratio: ratio,
+        count: count,
+        children: (child_a, child_b),
+    }
+}
+
+pub fn split_right_to_left<A: Default + Layout, B: Default + Layout>(
+    ratio: f64,
+    count: usize,
+    child_a: A,
+    child_b: B,
+) -> SplitLayout<A, B> {
+    SplitLayout {
+        direction: Direction::Decreasing,
+        axis: Axis::X,
+        ratio: ratio,
+        count: count,
+        children: (child_a, child_b),
+    }
+}
+
+pub fn split_top_to_bottom<A: Default + Layout, B: Default + Layout>(
+    ratio: f64,
+    count: usize,
+    child_a: A,
+    child_b: B,
+) -> SplitLayout<A, B> {
+    SplitLayout {
+        direction: Direction::Increasing,
+        axis: Axis::Y,
+        ratio: ratio,
+        count: count,
+        children: (child_a, child_b),
+    }
+}
+
+pub fn split_bottom_to_top<A: Default + Layout, B: Default + Layout>(
+    ratio: f64,
+    count: usize,
+    child_a: A,
+    child_b: B,
+) -> SplitLayout<A, B> {
+    SplitLayout {
+        direction: Direction::Decreasing,
+        axis: Axis::Y,
+        ratio: ratio,
+        count: count,
+        children: (child_a, child_b),
     }
 }
 
@@ -149,91 +170,61 @@ impl<A: Default + Layout> Layout for SpacingLayout<A> {
 
 #[derive(Clone, Default)]
 pub struct LayoutRoot<A: Default> {
-    commands: HashMap<String, Rc<Box<Fn(&mut window_manager::WindowManager, &mut A)>>>,
+    pub focus_border_width: u16,
+    pub focus_border_color: (u8, u8, u8),
+    pub screen_gap: u16,
+    pub window_gap: u16,
     child: A,
 }
 
 impl<A: Default> LayoutRoot<A> {
-    pub fn set_child(mut self, child: A) -> Self {
-        self.child = child;
-        self
+    fn focus_border_color_combined(&self) -> u32 {
+        let red = self.focus_border_color.0 as u32;
+        let green = self.focus_border_color.1 as u32;
+        let blue = self.focus_border_color.2 as u32;
+        (red << 16) + (green << 8) + blue
     }
-    // pub fn make(child: A) -> LayoutRoot<A> {
-    //     LayoutRoot {
-    //         child,
-    //         commands: Default::default(),
-    //     }
-    // }
-    // pub fn add_command<F: Fn(&mut window_manager::WindowManager, &mut A) + 'static>(
-    //     &mut self,
-    //     name: &'static str,
-    //     f: F,
-    // ) {
-    //     self.commands
-    //         .insert(String::from(name), Rc::new(Box::new(f)));
-    // }
 }
 
 impl<A: Default + Layout> Layout for LayoutRoot<A> {
     fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
-        self.child.layout(rect, windows)
-    }
-}
+        if windows.is_empty() {
+            return Default::default();
+        }
 
-//
-//------------------------------------------------------------------
-//
+        let mut r = *rect;
+        r.origin.x += self.screen_gap;
+        r.origin.y += self.screen_gap;
+        r.size.width -= 2 * self.screen_gap;
+        r.size.height -= 2 * self.screen_gap;
+        let mut actions = self.child.layout(&r, windows);
 
-#[derive(Clone, Default)]
-pub struct AddFocusBorder<A: Default> {
-    width: u16,
-    color: u32,
-    child: A,
-}
-
-impl<A: Default> AddFocusBorder<A> {
-    pub fn set_width(mut self, width: u16) -> Self {
-        self.width = width;
-        self
-    }
-    pub fn set_color(mut self, red: u8, green: u8, blue: u8) -> Self {
-        self.color = (red << 16 & green << 8 + blue).into();
-        self
-    }
-    pub fn set_child(mut self, child: A) -> Self {
-        self.child = child;
-        self
-    }
-    // pub fn make(width: u16, color: u32, child: A) -> AddFocusBorder<A> {
-    //     AddFocusBorder {
-    //         width,
-    //         color,
-    //         child,
-    //     }
-    // }
-}
-
-impl<A: Default + Layout> Layout for AddFocusBorder<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
-        let focused_window = xcb::xproto::get_input_focus(&window_manager::connection())
+        let focused_window = xcb::get_input_focus(&connection())
             .get_reply()
             .unwrap()
             .focus();
-        let mut actions = self.child.layout(rect, windows);
+
         for a in &mut actions {
             match a {
                 Action::Position {
                     id,
-                    rect: _,
+                    rect,
                     border_width,
                     border_color,
-                } if *id == focused_window => {
-                    *border_width = self.width;
-                    *border_color = self.color;
+                } => {
+                    rect.origin.x += self.window_gap;
+                    rect.origin.y += self.window_gap;
+                    rect.size.width -= 2 * self.window_gap;
+                    rect.size.height -= 2 * self.window_gap;
+                if *id == focused_window {
+                    *border_width = self.focus_border_width;
+                    *border_color = self.focus_border_color_combined();
+                }
                 }
                 _ => {}
             }
         }
+
         actions
     }
 }
@@ -299,62 +290,6 @@ pub struct SplitLayout<A, B> {
     children: (A, B),
 }
 
-impl<A: Default + Layout, B: Default + Layout> SplitLayout<A, B> {
-    pub fn set_axis(mut self, axis: Axis) -> Self {
-        self.axis = axis;
-        self
-    }
-    pub fn set_direction(mut self, direction: Direction) -> Self {
-        self.direction = direction;
-        self
-    }
-    pub fn set_ratio(mut self, ratio: f64) -> Self {
-        self.ratio = ratio;
-        self
-    }
-    pub fn set_count(mut self, count: usize) -> Self {
-        self.count = count;
-        self
-    }
-    pub fn set_children(mut self, child_a: A, child_b: B) -> Self {
-        self.children = (child_a, child_b);
-        self
-    }
-
-    // pub fn make(width: u16, color: u32, child: A) -> AddFocusBorder<A> {
-    // pub fn make(
-    //     axis: Axis,
-    //     direction: Direction,
-    //     ratio: f64,
-    //     count: usize,
-    //     children: (A, B),
-    // ) -> SplitLayout<A, B> {
-    //     SplitLayout {
-    //         axis,
-    //         direction,
-    //         ratio,
-    //         count,
-    //         children,
-    //     }
-    // }
-
-    // pub fn make_left_to_right(ratio: f64, count: usize, children: (A, B)) -> SplitLayout<A, B> {
-    //     Self::make(Axis::X, Direction::Increasing, ratio, count, children)
-    // }
-
-    // pub fn make_right_to_left(ratio: f64, count: usize, children: (A, B)) -> SplitLayout<A, B> {
-    //     Self::make(Axis::X, Direction::Decreasing, ratio, count, children)
-    // }
-
-    // pub fn make_top_to_bottom(ratio: f64, count: usize, children: (A, B)) -> SplitLayout<A, B> {
-    //     Self::make(Axis::Y, Direction::Increasing, ratio, count, children)
-    // }
-
-    // pub fn make_bottom_to_top(ratio: f64, count: usize, children: (A, B)) -> SplitLayout<A, B> {
-    //     Self::make(Axis::Y, Direction::Decreasing, ratio, count, children)
-    // }
-}
-
 impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
     fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
         if windows.is_empty() {
@@ -404,39 +339,12 @@ pub struct LinearLayout {
     direction: Direction,
 }
 
-impl LinearLayout {
-    pub fn set_axis(mut self, axis: Axis) -> Self {
-        self.axis = axis;
-        self
-    }
-    pub fn set_direction(mut self, direction: Direction) -> Self {
-        self.direction = direction;
-        self
-    }
-
-    //     pub fn make(axis: Axis, direction: Direction) -> LinearLayout {
-    //         LinearLayout { axis, direction }
-    //     }
-
-    //     pub fn make_left_to_right() -> LinearLayout {
-    //         Self::make(Axis::X, Direction::Increasing)
-    //     }
-
-    //     pub fn make_right_to_left() -> LinearLayout {
-    //         Self::make(Axis::X, Direction::Decreasing)
-    //     }
-
-    //     pub fn make_top_to_bottom() -> LinearLayout {
-    //         Self::make(Axis::Y, Direction::Increasing)
-    //     }
-
-    //     pub fn make_bottom_to_top() -> LinearLayout {
-    //         Self::make(Axis::Y, Direction::Decreasing)
-    //     }
-}
-
 impl Layout for LinearLayout {
     fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+        if windows.is_empty() {
+            return Default::default();
+        }
+
         let mut result = Vec::with_capacity(windows.len());
 
         match self.axis {

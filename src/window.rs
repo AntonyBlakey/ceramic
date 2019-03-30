@@ -1,4 +1,4 @@
-use super::{layout, window_manager::connection};
+use super::{layout, connection::*};
 
 pub type Id = xcb::Window;
 
@@ -25,13 +25,13 @@ impl Window {
     }
 
     pub fn map(&self) {
-        xcb::xproto::map_window(&connection(), self.id);
+        xcb::map_window(&connection(), self.id);
     }
 
     pub fn set_input_focus(&self) {
-        xcb::xproto::set_input_focus(
+        xcb::set_input_focus(
             &connection(),
-            xcb::xproto::INPUT_FOCUS_NONE as u8,
+            xcb::INPUT_FOCUS_NONE as u8,
             self.id,
             xcb::CURRENT_TIME,
         );
@@ -47,36 +47,33 @@ impl Window {
 
     pub fn set_geometry(&self, rect: &layout::LayoutRect, border_width: u16, border_color: u32) {
         if border_width > 0 {
-            xcb::xproto::change_window_attributes(
+            xcb::change_window_attributes(
                 &connection(),
                 self.id,
-                &[(xcb::xproto::CW_BORDER_PIXEL, border_color)],
+                &[(xcb::CW_BORDER_PIXEL, border_color)],
             );
         }
-        xcb::xproto::configure_window(
+        xcb::configure_window(
             &connection(),
             self.id,
             &[
                 (
-                    xcb::xproto::CONFIG_WINDOW_X as u16,
+                    xcb::CONFIG_WINDOW_X as u16,
                     (rect.origin.x - border_width) as u32,
                 ),
                 (
-                    xcb::xproto::CONFIG_WINDOW_Y as u16,
+                    xcb::CONFIG_WINDOW_Y as u16,
                     (rect.origin.y - border_width) as u32,
                 ),
                 (
-                    xcb::xproto::CONFIG_WINDOW_WIDTH as u16,
+                    xcb::CONFIG_WINDOW_WIDTH as u16,
                     (rect.size.width + 2 * border_width) as u32,
                 ),
                 (
-                    xcb::xproto::CONFIG_WINDOW_HEIGHT as u16,
+                    xcb::CONFIG_WINDOW_HEIGHT as u16,
                     (rect.size.height + 2 * border_width) as u32,
                 ),
-                (
-                    xcb::xproto::CONFIG_WINDOW_BORDER_WIDTH as u16,
-                    border_width as u32,
-                ),
+                (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, border_width as u32),
             ],
         );
     }

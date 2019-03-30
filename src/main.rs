@@ -1,5 +1,7 @@
 #![feature(vec_remove_item, trait_alias)]
+#![recursion_limit="128"]
 
+mod connection;
 mod artist;
 mod layout;
 mod window;

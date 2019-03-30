@@ -1,0 +1,16 @@
+[tasks.build]
+command = "cargo"
+args = ["build"]
+
+[tasks.xephyr]
+script = [
+    "Xephyr :1 -screen 1680x1050 &",
+    "sleep 1",
+]
+
+[tasks.ceramic]
+env = { DISPLAY = ":1", RUST_BACKTRACE = "1" }
+command = "target/debug/ceramic"
+
+[tasks.spin]
+dependencies = ["build", "xephyr", "ceramic"]
