@@ -5,7 +5,6 @@ use super::{
     layout::{Axis, Direction, Layout},
     window,
 };
-use maplit::hashmap;
 use std::{collections::HashMap, rc::Rc};
 
 #[derive(Default)]
@@ -16,11 +15,10 @@ pub struct WindowManager {
     current_workspace: usize,
 }
 
-#[derive(Clone)]
 pub struct Workspace {
     pub name: String,
-    pub layouts: Rc<HashMap<&'static str, Box<layout::Layout>>>,
-    pub current_layout: &'static str,
+    pub layouts: Vec<Box<layout::Layout>>,
+    pub current_layout: usize,
     pub windows: Vec<window::Id>,
     pub focused_window: Option<window::Id>,
 }
@@ -35,11 +33,11 @@ fn standard_layout_root<A: Default + Layout + 'static>(child: A) -> Box<layout::
     Box::new(root)
 }
 
-fn layouts() -> HashMap<&'static str, Box<layout::Layout>> {
-    hashmap! {
-        "monad_tall_right" => standard_layout_root(layout::monad(Direction::Decreasing, Axis::X, 0.75, 1)),
-        "monad_wide_top" => standard_layout_root(layout::monad(Direction::Increasing, Axis::Y, 0.75, 1)),
-    }
+fn layouts() -> Vec<Box<layout::Layout>> {
+    vec![
+        standard_layout_root(layout::monad(Direction::Decreasing, Axis::X, 0.75, 1)),
+        standard_layout_root(layout::monad(Direction::Increasing, Axis::Y, 0.75, 1)),
+    ]
 }
 
 pub fn run() {
@@ -163,14 +161,13 @@ impl WindowManager {
         connection.flush();
     }
 
-    fn add_workspace(&mut self, name: &str, layouts: HashMap<&'static str, Box<layout::Layout>>) {
-        let first_layout = *(layouts.keys().nth(0).unwrap());
+    fn add_workspace(&mut self, name: &str, layouts: Vec<Box<layout::Layout>>) {
         self.workspaces.push(Workspace {
             name: String::from(name),
             windows: Default::default(),
             focused_window: None,
-            layouts: Rc::new(layouts),
-            current_layout: first_layout,
+            layouts,
+            current_layout: 0,
         })
     }
 
@@ -240,7 +237,7 @@ impl WindowManager {
             .collect();
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
-        let actions = ws.layouts[&ws.current_layout].layout(
+        let actions = ws.layouts[ws.current_layout].layout(
             &euclid::rect(0, 0, screen.width_in_pixels(), screen.height_in_pixels()),
             &windows,
         );
