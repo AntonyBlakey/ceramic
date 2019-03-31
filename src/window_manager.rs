@@ -3,24 +3,28 @@ use super::{
     connection::*,
     layout,
     layout::{Axis, Direction, Layout},
-    window,
 };
 use std::{collections::HashMap, rc::Rc};
 
 #[derive(Default)]
 pub struct WindowManager {
-    windows: HashMap<window::Id, window::Window>,
+    windows: HashMap<xcb::Window, Window>,
     // decorators: HashMap<window::Id, Decorator>,
     workspaces: Vec<Workspace>,
     current_workspace: usize,
+}
+
+pub struct Window {
+    pub id: xcb::Window,
+    pub is_floating: bool,
 }
 
 pub struct Workspace {
     pub name: String,
     pub layouts: Vec<Box<layout::Layout>>,
     pub current_layout: usize,
-    pub windows: Vec<window::Id>,
-    pub focused_window: Option<window::Id>,
+    pub windows: Vec<xcb::Window>,
+    pub focused_window: Option<xcb::Window>,
 }
 
 fn standard_layout_root<A: Default + Layout + 'static>(child: A) -> Box<layout::Layout> {
@@ -49,7 +53,7 @@ pub fn run() {
 }
 
 struct Decorator {
-    id: window::Id,
+    id: xcb::Window,
     artist: Rc<artist::Artist>,
 }
 
@@ -172,12 +176,16 @@ impl WindowManager {
     }
 
     fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
-        self.windows
-            .insert(e.window(), window::Window::new(e.window()));
+        self.windows.insert(
+            e.window(),
+            Window {
+                id: e.window(),
+                is_floating: false,
+            },
+        );
     }
 
     fn destroy_notify(&mut self, e: &xcb::DestroyNotifyEvent) {
-        let window = &self.windows[&e.window()];
         self.windows.remove(&e.window());
     }
 
@@ -188,11 +196,7 @@ impl WindowManager {
     }
 
     fn map_request(&mut self, e: &xcb::MapRequestEvent) {
-        self.windows[&e.window()].map();
-        // TODO: give focus only to windows that want it
-        // TODO: when restoring a workspace, don't do this
-        // TODO: probaby just normally don't do this
-        // TODO: maybe put this call into the update
+        xcb::map_window(&connection(), e.window());
     }
 
     fn configure_notify(&mut self, e: &xcb::ConfigureNotifyEvent) {
@@ -204,7 +208,6 @@ impl WindowManager {
     }
 
     fn map_notify(&mut self, e: &xcb::MapNotifyEvent) {
-        self.windows.get_mut(&e.window()).unwrap().map_notify();
         let ws = &mut self.workspaces[self.current_workspace];
         // TODO: maybe we don't want to focus the new window?
         match ws.focused_window {
@@ -221,7 +224,6 @@ impl WindowManager {
     }
 
     fn unmap_notify(&mut self, e: &xcb::UnmapNotifyEvent) {
-        self.windows.get_mut(&e.window()).unwrap().unmap_notify();
         let ws = &mut self.workspaces[self.current_workspace];
         let mut fw = ws.focused_window;
         match fw {
@@ -230,7 +232,7 @@ impl WindowManager {
                     ws.windows.remove(0);
                     fw = None;
                 } else {
-                    // TODO: the next window to select might not be as simple as this
+                    // TODO: the next window to focus might not be as simple as this
                     let index = ws.windows.iter().position(|x| *x == id).unwrap();
                     ws.windows.remove(index);
                     fw = Some(ws.windows[index.min(ws.windows.len() - 1)]);
@@ -244,13 +246,18 @@ impl WindowManager {
         self.update_layout();
     }
 
-    fn set_focused_window(&mut self, w: Option<window::Id>) {
+    fn set_focused_window(&mut self, w: Option<xcb::Window>) {
         if self.workspaces[self.current_workspace].focused_window != w {
             self.workspaces[self.current_workspace].focused_window = w;
             match w {
                 Some(id) => {
-                    self.windows[&id].set_input_focus();
                     let connection = connection();
+                    xcb::set_input_focus(
+                        &connection,
+                        xcb::INPUT_FOCUS_NONE as u8,
+                        id,
+                        xcb::CURRENT_TIME,
+                    );
                     let screen = connection.get_setup().roots().nth(0).unwrap();
                     set_window_property(screen.root(), *ATOM__NET_ACTIVE_WINDOW, id);
                 }
@@ -265,12 +272,7 @@ impl WindowManager {
 
     fn update_layout(&mut self) {
         let ws = &self.workspaces[self.current_workspace];
-        let windows: Vec<&window::Window> = ws
-            .windows
-            .iter()
-            .map(|id| &self.windows[id])
-            .filter(|w| w.is_mapped())
-            .collect();
+        let windows: Vec<&Window> = ws.windows.iter().map(|id| &self.windows[id]).collect();
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let actions = ws.layouts[ws.current_layout].layout(
@@ -284,7 +286,32 @@ impl WindowManager {
                     rect,
                     border_width,
                     border_color,
-                } => self.windows[&id].set_geometry(&rect, border_width, border_color),
+                } => {
+                    if border_width > 0 {
+                        xcb::change_window_attributes(
+                            &connection,
+                            id,
+                            &[(xcb::CW_BORDER_PIXEL, border_color)],
+                        );
+                    }
+                    xcb::configure_window(
+                        &connection,
+                        id,
+                        &[
+                            (
+                                xcb::CONFIG_WINDOW_X as u16,
+                                (rect.origin.x - border_width) as u32,
+                            ),
+                            (
+                                xcb::CONFIG_WINDOW_Y as u16,
+                                (rect.origin.y - border_width) as u32,
+                            ),
+                            (xcb::CONFIG_WINDOW_WIDTH as u16, rect.size.width as u32),
+                            (xcb::CONFIG_WINDOW_HEIGHT as u16, rect.size.height as u32),
+                            (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, border_width as u32),
+                        ],
+                    );
+                }
                 _ => (),
             }
         }

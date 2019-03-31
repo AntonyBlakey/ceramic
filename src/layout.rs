@@ -1,4 +1,4 @@
-use super::{artist, connection::*, window};
+use super::{artist, connection::*, window_manager};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -55,7 +55,7 @@ impl Default for Direction {
 pub type LayoutRect = euclid::Rect<u16>;
 
 pub trait Layout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action>;
+    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action>;
 }
 
 pub enum Action {
@@ -64,7 +64,7 @@ pub enum Action {
         rect: LayoutRect,
     },
     Position {
-        id: window::Id,
+        id: xcb::Window,
         rect: LayoutRect,
         border_width: u16,
         border_color: u32,
@@ -155,7 +155,7 @@ pub struct LayoutRoot<A: Default> {
 }
 
 impl<A: Default + Layout> Layout for LayoutRoot<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
         self.child.layout(rect, &windows)
     }
 }
@@ -170,13 +170,13 @@ pub struct IgnoreSomeWindows<A: Default> {
 }
 
 impl<A: Default + Layout> Layout for IgnoreSomeWindows<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
         self.child.layout(
             rect,
             &windows
                 .iter()
                 .filter(|w| {
-                    let window_type = get_atoms_property(w.id(), *ATOM__NET_WM_WINDOW_TYPE);
+                    let window_type = get_atoms_property(w.id, *ATOM__NET_WM_WINDOW_TYPE);
                     !window_type.contains(&*ATOM__NET_WM_WINDOW_TYPE_DOCK)
                 })
                 .map(|&w| w)
@@ -195,11 +195,11 @@ pub struct AvoidStruts<A: Default> {
 }
 
 impl<A: Default + Layout> Layout for AvoidStruts<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
         let mut r = *rect;
 
         for window in windows {
-            let struts = get_cardinals_property(window.id(), *ATOM__NET_WM_STRUT);
+            let struts = get_cardinals_property(window.id, *ATOM__NET_WM_STRUT);
             if struts.len() == 4 {
                 let left = struts[0] as u16;
                 let right = struts[1] as u16;
@@ -228,7 +228,7 @@ pub struct AddGaps<A: Default> {
 }
 
 impl<A: Default + Layout> Layout for AddGaps<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
         let mut r = *rect;
 
         r.origin.x += self.screen_gap;
@@ -270,7 +270,7 @@ pub struct AddFocusBorder<A: Default> {
 }
 
 impl<A: Default + Layout> Layout for AddFocusBorder<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
         let mut actions = self.child.layout(rect, windows);
 
         let focused_window = xcb::get_input_focus(&connection())
@@ -311,7 +311,7 @@ impl<A: Default + Layout> Layout for AddFocusBorder<A> {
 pub struct GridLayout {}
 
 impl Layout for GridLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
         if windows.is_empty() {
             return Default::default();
         }
@@ -341,7 +341,7 @@ impl Layout for GridLayout {
                     row += 1;
                 }
                 Action::Position {
-                    id: window.id(),
+                    id: window.id,
                     rect: euclid::rect(x, y, w, h),
                     border_width: 0,
                     border_color: 0,
@@ -365,7 +365,7 @@ pub struct SplitLayout<A, B> {
 }
 
 impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
         if windows.is_empty() {
             return Default::default();
         }
@@ -414,7 +414,7 @@ pub struct LinearLayout {
 }
 
 impl Layout for LinearLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
         if windows.is_empty() {
             return Default::default();
         }
@@ -427,7 +427,7 @@ impl Layout for LinearLayout {
                 r.size.width = r.size.width / windows.len() as u16;
                 for w in windows {
                     result.push(Action::Position {
-                        id: w.id(),
+                        id: w.id,
                         rect: r,
                         border_width: 0,
                         border_color: 0,
@@ -440,7 +440,7 @@ impl Layout for LinearLayout {
                 r.size.height = r.size.height / windows.len() as u16;
                 for w in windows {
                     result.push(Action::Position {
-                        id: w.id(),
+                        id: w.id,
                         rect: r,
                         border_width: 0,
                         border_color: 0,
