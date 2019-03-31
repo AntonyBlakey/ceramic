@@ -174,16 +174,10 @@ impl WindowManager {
     fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
         self.windows
             .insert(e.window(), window::Window::new(e.window()));
-        self.workspaces[self.current_workspace]
-            .windows
-            .push(e.window());
     }
 
     fn destroy_notify(&mut self, e: &xcb::DestroyNotifyEvent) {
         let window = &self.windows[&e.window()];
-        for ws in &mut self.workspaces {
-            ws.windows.remove_item(&window.id());
-        }
         self.windows.remove(&e.window());
     }
 
@@ -199,7 +193,6 @@ impl WindowManager {
         // TODO: when restoring a workspace, don't do this
         // TODO: probaby just normally don't do this
         // TODO: maybe put this call into the update
-        self.windows[&e.window()].set_input_focus();
     }
 
     fn configure_notify(&mut self, e: &xcb::ConfigureNotifyEvent) {
@@ -211,16 +204,59 @@ impl WindowManager {
     }
 
     fn map_notify(&mut self, e: &xcb::MapNotifyEvent) {
-        // TODO: If this is the first mapping, apply rules
-        // and insert in the right spot
         self.windows.get_mut(&e.window()).unwrap().map_notify();
+        let ws = &mut self.workspaces[self.current_workspace];
+        // TODO: maybe we don't want to focus the new window?
+        match ws.focused_window {
+            Some(id) => {
+                let index = ws.windows.iter().position(|x| *x == id).unwrap();
+                ws.windows.insert(index, e.window());
+            }
+            None => {
+                ws.windows.insert(0, e.window());
+            }
+        }
+        self.set_focused_window(Some(e.window()));
         self.update_layout();
     }
 
     fn unmap_notify(&mut self, e: &xcb::UnmapNotifyEvent) {
         self.windows.get_mut(&e.window()).unwrap().unmap_notify();
-        // TODO: move focus if required
+        let ws = &mut self.workspaces[self.current_workspace];
+        let mut fw = ws.focused_window;
+        match fw {
+            Some(id) if id == e.window() => {
+                if ws.windows.len() == 1 {
+                    ws.windows.remove(0);
+                    fw = None;
+                } else {
+                    // TODO: the next window to select might not be as simple as this
+                    let index = ws.windows.iter().position(|x| *x == id).unwrap();
+                    ws.windows.remove(index);
+                    fw = Some(ws.windows[index.min(ws.windows.len() - 1)]);
+                }
+            }
+            _ => {
+                ws.windows.remove_item(&e.window());
+            }
+        };
+        self.set_focused_window(fw);
         self.update_layout();
+    }
+
+    fn set_focused_window(&mut self, w: Option<window::Id>) {
+        if self.workspaces[self.current_workspace].focused_window != w {
+            self.workspaces[self.current_workspace].focused_window = w;
+            match w {
+                Some(id) => {
+                    self.windows[&id].set_input_focus();
+                    let connection = connection();
+                    let screen = connection.get_setup().roots().nth(0).unwrap();
+                    set_window_property(screen.root(), *ATOM__NET_ACTIVE_WINDOW, id);
+                }
+                _ => {}
+            }
+        }
     }
 
     fn client_message(&mut self, e: &xcb::ClientMessageEvent) {
