@@ -1,7 +1,7 @@
-use super::{artist, window, connection::*};
+use super::{artist, connection::*, window};
 use std::rc::Rc;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Axis {
     X,
     Y,
@@ -32,9 +32,15 @@ impl Axis {
             Axis::Y => rect.size.height,
         }
     }
+    pub fn orthogonal(&self) -> Self {
+        match self {
+            Axis::X => Axis::Y,
+            Axis::Y => Axis::X,
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Direction {
     Increasing,
     Decreasing,
@@ -72,96 +78,71 @@ pub fn root<A: Default + Layout>(child: A) -> LayoutRoot<A> {
     }
 }
 
+pub fn avoid_struts<A: Default + Layout>(child: A) -> AvoidStruts<A> {
+    AvoidStruts { child: child }
+}
+
+pub fn ignore_some_windows<A: Default + Layout>(child: A) -> IgnoreSomeWindows<A> {
+    IgnoreSomeWindows { child: child }
+}
+pub fn add_gaps<A: Default + Layout>(screen_gap: u16, window_gap: u16, child: A) -> AddGaps<A> {
+    AddGaps {
+        screen_gap,
+        window_gap,
+        child: child,
+    }
+}
+
+pub fn add_focus_border<A: Default + Layout>(
+    width: u16,
+    color: (u8, u8, u8),
+    child: A,
+) -> AddFocusBorder<A> {
+    AddFocusBorder {
+        width,
+        color,
+        child: child,
+    }
+}
 pub fn grid() -> GridLayout {
     Default::default()
 }
 
-pub fn linear_left_to_right() -> LinearLayout {
-    LinearLayout {
-        direction: Direction::Increasing,
-        axis: Axis::X,
-    }
+pub fn linear(direction: Direction, axis: Axis) -> LinearLayout {
+    LinearLayout { direction, axis }
 }
 
-pub fn linear_right_to_left() -> LinearLayout {
-    LinearLayout {
-        direction: Direction::Decreasing,
-        axis: Axis::X,
-    }
-}
-
-pub fn linear_top_to_bottom() -> LinearLayout {
-    LinearLayout {
-        direction: Direction::Increasing,
-        axis: Axis::Y,
-    }
-}
-
-pub fn linear_bottom_to_top() -> LinearLayout {
-    LinearLayout {
-        direction: Direction::Decreasing,
-        axis: Axis::Y,
-    }
-}
-
-pub fn split_left_to_right<A: Default + Layout, B: Default + Layout>(
+pub fn split<A: Default + Layout, B: Default + Layout>(
+    direction: Direction,
+    axis: Axis,
     ratio: f64,
     count: usize,
     child_a: A,
     child_b: B,
 ) -> SplitLayout<A, B> {
     SplitLayout {
-        direction: Direction::Increasing,
-        axis: Axis::X,
-        ratio: ratio,
-        count: count,
+        direction,
+        axis,
+        ratio,
+        count,
         children: (child_a, child_b),
     }
 }
 
-pub fn split_right_to_left<A: Default + Layout, B: Default + Layout>(
+pub fn monad(
+    direction: Direction,
+    axis: Axis,
     ratio: f64,
     count: usize,
-    child_a: A,
-    child_b: B,
-) -> SplitLayout<A, B> {
-    SplitLayout {
-        direction: Direction::Decreasing,
-        axis: Axis::X,
-        ratio: ratio,
-        count: count,
-        children: (child_a, child_b),
-    }
-}
-
-pub fn split_top_to_bottom<A: Default + Layout, B: Default + Layout>(
-    ratio: f64,
-    count: usize,
-    child_a: A,
-    child_b: B,
-) -> SplitLayout<A, B> {
-    SplitLayout {
-        direction: Direction::Increasing,
-        axis: Axis::Y,
-        ratio: ratio,
-        count: count,
-        children: (child_a, child_b),
-    }
-}
-
-pub fn split_bottom_to_top<A: Default + Layout, B: Default + Layout>(
-    ratio: f64,
-    count: usize,
-    child_a: A,
-    child_b: B,
-) -> SplitLayout<A, B> {
-    SplitLayout {
-        direction: Direction::Decreasing,
-        axis: Axis::Y,
-        ratio: ratio,
-        count: count,
-        children: (child_a, child_b),
-    }
+) -> SplitLayout<LinearLayout, LinearLayout> {
+    split(
+        direction,
+        axis,
+        ratio,
+        count,
+        linear(direction, axis),
+        linear(Direction::Increasing, axis.orthogonal()),
+    )
 }
 
 //
@@ -170,56 +151,149 @@ pub fn split_bottom_to_top<A: Default + Layout, B: Default + Layout>(
 
 #[derive(Clone, Default)]
 pub struct LayoutRoot<A: Default> {
-    pub focus_border_width: u16,
-    pub focus_border_color: (u8, u8, u8),
+    child: A,
+}
+
+impl<A: Default + Layout> Layout for LayoutRoot<A> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+        self.child.layout(rect, &windows)
+    }
+}
+
+//
+//------------------------------------------------------------------
+//
+
+#[derive(Clone, Default)]
+pub struct IgnoreSomeWindows<A: Default> {
+    child: A,
+}
+
+impl<A: Default + Layout> Layout for IgnoreSomeWindows<A> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+        self.child.layout(
+            rect,
+            &windows
+                .iter()
+                .filter(|w| {
+                    let window_type = get_atoms_property(w.id(), *ATOM__NET_WM_WINDOW_TYPE);
+                    !window_type.contains(&*ATOM__NET_WM_WINDOW_TYPE_DOCK)
+                })
+                .map(|&w| w)
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
+//
+//------------------------------------------------------------------
+//
+
+#[derive(Clone, Default)]
+pub struct AvoidStruts<A: Default> {
+    child: A,
+}
+
+impl<A: Default + Layout> Layout for AvoidStruts<A> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+        let mut r = *rect;
+
+        for window in windows {
+            let struts = get_cardinals_property(window.id(), *ATOM__NET_WM_STRUT);
+            if struts.len() == 4 {
+                let left = struts[0] as u16;
+                let right = struts[1] as u16;
+                let top = struts[2] as u16;
+                let bottom = struts[3] as u16;
+                r.origin.x += left;
+                r.size.width -= left + right;
+                r.origin.y += top;
+                r.size.height -= top + bottom;
+            }
+        }
+
+        self.child.layout(&r, &windows)
+    }
+}
+
+//
+//------------------------------------------------------------------
+//
+
+#[derive(Clone, Default)]
+pub struct AddGaps<A: Default> {
     pub screen_gap: u16,
     pub window_gap: u16,
     child: A,
 }
 
-impl<A: Default> LayoutRoot<A> {
-    fn focus_border_color_combined(&self) -> u32 {
-        let red = self.focus_border_color.0 as u32;
-        let green = self.focus_border_color.1 as u32;
-        let blue = self.focus_border_color.2 as u32;
-        (red << 16) + (green << 8) + blue
-    }
-}
-
-impl<A: Default + Layout> Layout for LayoutRoot<A> {
+impl<A: Default + Layout> Layout for AddGaps<A> {
     fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
-        if windows.is_empty() {
-            return Default::default();
-        }
-
         let mut r = *rect;
+
         r.origin.x += self.screen_gap;
         r.origin.y += self.screen_gap;
         r.size.width -= 2 * self.screen_gap;
         r.size.height -= 2 * self.screen_gap;
-        let mut actions = self.child.layout(&r, windows);
+        let mut actions = self.child.layout(&r, &windows);
+
+        for a in &mut actions {
+            match a {
+                Action::Position {
+                    id: _,
+                    rect,
+                    border_width: _,
+                    border_color: _,
+                } => {
+                    rect.origin.x += self.window_gap;
+                    rect.origin.y += self.window_gap;
+                    rect.size.width -= 2 * self.window_gap;
+                    rect.size.height -= 2 * self.window_gap;
+                }
+                _ => {}
+            }
+        }
+
+        actions
+    }
+}
+
+//
+//------------------------------------------------------------------
+//
+
+#[derive(Clone, Default)]
+pub struct AddFocusBorder<A: Default> {
+    pub width: u16,
+    pub color: (u8, u8, u8),
+    child: A,
+}
+
+impl<A: Default + Layout> Layout for AddFocusBorder<A> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+        let mut actions = self.child.layout(rect, windows);
 
         let focused_window = xcb::get_input_focus(&connection())
             .get_reply()
             .unwrap()
             .focus();
 
+        let red = self.color.0 as u32;
+        let green = self.color.1 as u32;
+        let blue = self.color.2 as u32;
+        // NOTE: without parens this doesn't do what you expect!
+        let color = (red << 16) + (green << 8) + blue;
+
         for a in &mut actions {
             match a {
                 Action::Position {
                     id,
-                    rect,
+                    rect: _,
                     border_width,
                     border_color,
-                } => {
-                    rect.origin.x += self.window_gap;
-                    rect.origin.y += self.window_gap;
-                    rect.size.width -= 2 * self.window_gap;
-                    rect.size.height -= 2 * self.window_gap;
-                if *id == focused_window {
-                    *border_width = self.focus_border_width;
-                    *border_color = self.focus_border_color_combined();
-                }
+                } if *id == focused_window => {
+                    *border_width = self.width;
+                    *border_color = color;
                 }
                 _ => {}
             }

@@ -1,6 +1,12 @@
-use super::layout::Layout; // Trait import for function access
-use super::{artist, layout, window, connection::*};
-use std::{clone::Clone, collections::HashMap, rc::Rc};
+use super::{
+    artist,
+    connection::*,
+    layout,
+    layout::{Axis, Direction, Layout},
+    window,
+};
+use maplit::hashmap;
+use std::{collections::HashMap, rc::Rc};
 
 #[derive(Default)]
 pub struct WindowManager {
@@ -10,32 +16,36 @@ pub struct WindowManager {
     current_workspace: usize,
 }
 
+#[derive(Clone)]
 pub struct Workspace {
     pub name: String,
-    pub layout: Box<layout::Layout>,
-    pub focused_window: Option<window::Id>,
+    pub layouts: Rc<HashMap<&'static str, Box<layout::Layout>>>,
+    pub current_layout: &'static str,
     pub windows: Vec<window::Id>,
+    pub focused_window: Option<window::Id>,
 }
 
-fn standard_layout_root<A: Default + Layout>(child: A) -> layout::LayoutRoot<A> {
-    let mut root = layout::root(child);
-    root.focus_border_width = 1;
-    root.focus_border_color = (0, 255, 0);
-    root.screen_gap = 5;
-    root.window_gap = 5;
-    root
+fn standard_layout_root<A: Default + Layout + 'static>(child: A) -> Box<layout::Layout> {
+    let add_focus_border = layout::add_focus_border(2, (0, 255, 0), child);
+    let add_gaps = layout::add_gaps(5, 5, add_focus_border);
+    let ignore_some_windows = layout::ignore_some_windows(add_gaps);
+    let avoid_struts = layout::avoid_struts(ignore_some_windows);
+    let root = layout::root(avoid_struts);
+
+    Box::new(root)
+}
+
+fn layouts() -> HashMap<&'static str, Box<layout::Layout>> {
+    hashmap! {
+        "monad_tall_right" => standard_layout_root(layout::monad(Direction::Decreasing, Axis::X, 0.75, 1)),
+        "monad_wide_top" => standard_layout_root(layout::monad(Direction::Increasing, Axis::Y, 0.75, 1)),
+    }
 }
 
 pub fn run() {
     let mut wm = WindowManager::default();
-    let layout = standard_layout_root(layout::split_right_to_left(
-        0.75,
-        1,
-        layout::linear_right_to_left(),
-        layout::linear_top_to_bottom(),
-    ));
     for i in 1..=9 {
-        wm.add_workspace(&format!("{}", i), layout.clone());
+        wm.add_workspace(&format!("{}", i), layouts());
     }
     wm.main_loop();
 }
@@ -85,6 +95,12 @@ impl WindowManager {
     pub fn move_focused_window_up_stack(&mut self) {}
     pub fn move_focused_window_down_stack(&mut self) {}
     pub fn move_focused_window_to_head(&mut self) {}
+    pub fn switch_to_workspace(&mut self, workspace_number: usize) {
+        // 1. Copy current workspace into temp
+        // 2. Unmap all windows
+        // 3. Overwrite workspace from temp
+        // 4. Map new workspace's windows, set input focus, update layout
+    }
 
     fn set_initial_root_window_properties(&self) {
         let connection = connection();
@@ -147,18 +163,18 @@ impl WindowManager {
         connection.flush();
     }
 
-    fn add_workspace<A: Layout + Clone + 'static>(&mut self, name: &str, layout: A) {
+    fn add_workspace(&mut self, name: &str, layouts: HashMap<&'static str, Box<layout::Layout>>) {
+        let first_layout = *(layouts.keys().nth(0).unwrap());
         self.workspaces.push(Workspace {
             name: String::from(name),
             windows: Default::default(),
             focused_window: None,
-            layout: Box::new(layout),
+            layouts: Rc::new(layouts),
+            current_layout: first_layout,
         })
     }
 
     fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
-        // TODO: don't blindly insert at the end
-        // TODO: apply rules
         self.windows
             .insert(e.window(), window::Window::new(e.window()));
         self.workspaces[self.current_workspace]
@@ -177,33 +193,20 @@ impl WindowManager {
     fn configure_request(&mut self, e: &xcb::ConfigureRequestEvent) {
         // TODO: apply rules
         // If the window isn't managed by us then act on the request for frame at least
-        println!(
-            "Configure Request: {:x} {} {} {} {} {} {}",
-            e.window(),
-            e.x(),
-            e.y(),
-            e.width(),
-            e.height(),
-            e.border_width(),
-            e.value_mask()
-        );
-    }
-
-    fn switch_to_workspace(&mut self) {
-        // 1. Copy current workspace into temp
-        // 2. Unmap all windows
-        // 3. Overwrite workspace from temp
-        // 4. Map new workspace's windows, set input focus, update layout
-
+        // println!("Configure Request: {:x}", e.window());
     }
 
     fn map_request(&mut self, e: &xcb::MapRequestEvent) {
         self.windows[&e.window()].map();
+        // TODO: give focus only to windows that want it
+        // TODO: when restoring a workspace, don't do this
+        // TODO: probaby just normally don't do this
+        // TODO: maybe put this call into the update
         self.windows[&e.window()].set_input_focus();
     }
 
     fn configure_notify(&mut self, e: &xcb::ConfigureNotifyEvent) {
-        println!("Configure Notify: {:x}", e.window());
+        // println!("Configure Notify: {:x}", e.window());
     }
 
     fn property_notify(&mut self, e: &xcb::PropertyNotifyEvent) {
@@ -211,6 +214,8 @@ impl WindowManager {
     }
 
     fn map_notify(&mut self, e: &xcb::MapNotifyEvent) {
+        // TODO: If this is the first mapping, apply rules
+        // and insert in the right spot
         self.windows.get_mut(&e.window()).unwrap().map_notify();
         self.update_layout();
     }
@@ -235,7 +240,7 @@ impl WindowManager {
             .collect();
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
-        let actions = ws.layout.layout(
+        let actions = ws.layouts[&ws.current_layout].layout(
             &euclid::rect(0, 0, screen.width_in_pixels(), screen.height_in_pixels()),
             &windows,
         );

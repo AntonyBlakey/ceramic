@@ -1,4 +1,4 @@
-use super::{layout, connection::*};
+use super::{connection::*, layout};
 
 pub type Id = xcb::Window;
 
@@ -67,11 +67,11 @@ impl Window {
                 ),
                 (
                     xcb::CONFIG_WINDOW_WIDTH as u16,
-                    (rect.size.width + 2 * border_width) as u32,
+                    rect.size.width as u32,
                 ),
                 (
                     xcb::CONFIG_WINDOW_HEIGHT as u16,
-                    (rect.size.height + 2 * border_width) as u32,
+                    rect.size.height as u32,
                 ),
                 (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, border_width as u32),
             ],

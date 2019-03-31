@@ -21,6 +21,7 @@ pub fn get_atom(name: &str) -> u32 {
 
 lazy_static! {
     pub static ref ATOM_UTF8_STRING: u32 = get_atom("UTF8_STRING");
+    //
     pub static ref ATOM__NET_WM_NAME: u32 = get_atom("_NET_WM_NAME");
     pub static ref ATOM__NET_SUPPORTED: u32 = get_atom("_NET_SUPPORTED");
     pub static ref ATOM__NET_SUPPORTING_WM_CHECK: u32 = get_atom("_NET_SUPPORTING_WM_CHECK");
@@ -28,9 +29,10 @@ lazy_static! {
     pub static ref ATOM__NET_NUMBER_OF_DESKTOPS: u32 = get_atom("_NET_NUMBER_OF_DESKTOPS");
     pub static ref ATOM__NET_DESKTOP_NAMES: u32 = get_atom("_NET_DESKTOP_NAMES");
     pub static ref ATOM__NET_CURRENT_DESKTOP: u32 = get_atom("_NET_CURRENT_DESKTOP");
-    pub static ref ATOM__NET_WM_WINDOW_TYPE: u32 = get_atom("_NET_WM_WINDOW_TYPE");
     pub static ref ATOM__NET_WM_STRUT: u32 = get_atom("_NET_WM_STRUT");
     pub static ref ATOM__NET_WM_DESKTOP: u32 = get_atom("_NET_WM_DESKTOP");
+    //
+    pub static ref ATOM__NET_WM_WINDOW_TYPE: u32 = get_atom("_NET_WM_WINDOW_TYPE");
     pub static ref ATOM__NET_WM_WINDOW_TYPE_DESKTOP: u32 = get_atom("_NET_WM_WINDOW_TYPE_DESKTOP");
     pub static ref ATOM__NET_WM_WINDOW_TYPE_DOCK: u32 = get_atom("_NET_WM_WINDOW_TYPE_DOCK");
     pub static ref ATOM__NET_WM_WINDOW_TYPE_TOOLBAR: u32 = get_atom("_NET_WM_WINDOW_TYPE_TOOLBAR");
@@ -48,6 +50,7 @@ lazy_static! {
     pub static ref ATOM__NET_WM_WINDOW_TYPE_COMBO: u32 = get_atom("_NET_WM_WINDOW_TYPE_COMBO");
     pub static ref ATOM__NET_WM_WINDOW_TYPE_DND: u32 = get_atom("_NET_WM_WINDOW_TYPE_DND");
     pub static ref ATOM__NET_WM_WINDOW_TYPE_NORMAL: u32 = get_atom("_NET_WM_WINDOW_TYPE_NORMAL");
+    //
     pub static ref ATOM__NET_WM_STATE: u32 = get_atom("_NET_WM_STATE");
     pub static ref ATOM__NET_WM_STATE_MODAL: u32 = get_atom("_NET_WM_STATE_MODAL");
     pub static ref ATOM__NET_WM_STATE_STICKY: u32 = get_atom("_NET_WM_STATE_STICKY");
@@ -64,6 +67,7 @@ lazy_static! {
     pub static ref ATOM__NET_WM_STATE_BELOW: u32 = get_atom("_NET_WM_STATE_BELOW");
     pub static ref ATOM__NET_WM_STATE_DEMANDS_ATTENTION: u32 =
         get_atom("_NET_WM_STATE_DEMANDS_ATTENTION");
+    //
     pub static ref ATOM__NET_WM_ALLOWED_ACTIONS: u32 = get_atom("_NET_WM_ALLOWED_ACTIONS");
     pub static ref ATOM__NET_WM_ACTION_MOVE: u32 = get_atom("_NET_WM_ACTION_MOVE");
     pub static ref ATOM__NET_WM_ACTION_RESIZE: u32 = get_atom("_NET_WM_ACTION_RESIZE");
@@ -80,6 +84,22 @@ lazy_static! {
     pub static ref ATOM__NET_WM_ACTION_CLOSE: u32 = get_atom("_NET_WM_ACTION_CLOSE");
     pub static ref ATOM__NET_WM_ACTION_ABOVE: u32 = get_atom("_NET_WM_ACTION_ABOVE");
     pub static ref ATOM__NET_WM_ACTION_BELOW: u32 = get_atom("_NET_WM_ACTION_BELOW");
+}
+
+pub fn set_cardinal_property(window: xcb::Window, name_atom: u32, value: u32) {
+    set_cardinals_property(window, name_atom, &[value]);
+}
+
+pub fn set_cardinals_property(window: xcb::Window, name_atom: u32, values: &[u32]) {
+    xcb::change_property(
+        &connection(),
+        xcb::PROP_MODE_REPLACE as u8,
+        window,
+        name_atom,
+        xcb::ATOM_CARDINAL,
+        32,
+        values,
+    );
 }
 
 pub fn set_string_property(window: xcb::Window, name_atom: u32, value: &str) {
@@ -111,6 +131,22 @@ pub fn set_strings_property(window: xcb::Window, name_atom: u32, values: &[&str]
     );
 }
 
+pub fn set_window_property(window: xcb::Window, name_atom: u32, value: xcb::Window) {
+    set_windows_property(window, name_atom, &[value]);
+}
+
+pub fn set_windows_property(window: xcb::Window, name_atom: u32, values: &[xcb::Window]) {
+    xcb::change_property(
+        &connection(),
+        xcb::PROP_MODE_REPLACE as u8,
+        window,
+        name_atom,
+        xcb::ATOM_WINDOW,
+        32,
+        values,
+    );
+}
+
 pub fn set_atom_property(window: xcb::Window, name_atom: u32, value: u32) {
     set_atoms_property(window, name_atom, &[value]);
 }
@@ -127,34 +163,120 @@ pub fn set_atoms_property(window: xcb::Window, name_atom: u32, values: &[u32]) {
     );
 }
 
-pub fn set_cardinal_property(window: xcb::Window, name_atom: u32, value: u32) {
-    set_cardinals_property(window, name_atom, &[value]);
+pub fn get_cardinal_property(window: xcb::Window, name_atom: u32) -> Option<u32> {
+    let result = get_cardinals_property(window, name_atom);
+    if result.is_empty() {
+        None
+    } else {
+        Some(result[0])
+    }
 }
 
-pub fn set_cardinals_property(window: xcb::Window, name_atom: u32, values: &[u32]) {
-    xcb::change_property(
+pub fn get_cardinals_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
+    // TODO: handle case where property is bigger than we allowed for
+    xcb::get_property(
         &connection(),
-        xcb::PROP_MODE_REPLACE as u8,
+        false,
         window,
         name_atom,
         xcb::ATOM_CARDINAL,
+        0,
         32,
-        values,
-    );
+    )
+    .get_reply()
+    .unwrap()
+    .value()
+    .to_vec()
 }
 
-pub fn set_window_property(window: xcb::Window, name_atom: u32, value: xcb::Window) {
-    set_windows_property(window, name_atom, &[value]);
+pub fn get_string_property(window: xcb::Window, name_atom: u32) -> String {
+    String::from_utf8(
+        xcb::get_property(
+            &connection(),
+            false,
+            window,
+            name_atom,
+            *ATOM_UTF8_STRING,
+            0,
+            1024,
+        )
+        .get_reply()
+        .unwrap()
+        .value()
+        .to_vec(),
+    )
+    .unwrap()
 }
 
-pub fn set_windows_property(window: xcb::Window, name_atom: u32, values: &[xcb::Window]) {
-    xcb::change_property(
+pub fn get_strings_property(window: xcb::Window, name_atom: u32) -> Vec<String> {
+    // TODO: handle case where property is bigger than we allowed for
+    let s: String = String::from_utf8(
+        xcb::get_property(
+            &connection(),
+            false,
+            window,
+            name_atom,
+            *ATOM_UTF8_STRING,
+            0,
+            1024,
+        )
+        .get_reply()
+        .unwrap()
+        .value()
+        .to_vec(),
+    )
+    .unwrap();
+    s.split("\0").map(|s| String::from(s)).collect()
+}
+
+pub fn get_window_property(window: xcb::Window, name_atom: u32) -> Option<xcb::Window> {
+    let result = get_windows_property(window, name_atom);
+    if result.is_empty() {
+        None
+    } else {
+        Some(result[0])
+    }
+}
+
+pub fn get_windows_property(window: xcb::Window, name_atom: u32) -> Vec<xcb::Window> {
+    // TODO: handle case where property is bigger than we allowed for
+    xcb::get_property(
         &connection(),
-        xcb::PROP_MODE_REPLACE as u8,
+        false,
         window,
         name_atom,
         xcb::ATOM_WINDOW,
+        0,
         32,
-        values,
-    );
+    )
+    .get_reply()
+    .unwrap()
+    .value()
+    .to_vec()
+}
+
+pub fn get_atom_property(window: xcb::Window, name_atom: u32) -> Option<u32> {
+    let result = get_atoms_property(window, name_atom);
+    if result.is_empty() {
+        None
+    } else {
+        Some(result[0])
+    }
+}
+
+pub fn get_atoms_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
+    // TODO: handle case where property is bigger than we allowed for
+    xcb::get_property(
+        &connection(),
+        false,
+        window,
+        name_atom,
+        xcb::ATOM_ATOM,
+        0,
+        32,
+    )
+    .get_reply()
+    .unwrap()
+    .value()
+    .to_vec()
 }
