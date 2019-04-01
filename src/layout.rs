@@ -1,16 +1,10 @@
-use super::{artist, connection::*, window_manager::WindowData};
+use super::{artist, connection::*, window_manager::WindowData, window_manager::Commandable};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Axis {
     X,
     Y,
-}
-
-impl Default for Axis {
-    fn default() -> Self {
-        Axis::X
-    }
 }
 
 impl Axis {
@@ -46,22 +40,10 @@ pub enum Direction {
     Decreasing,
 }
 
-impl Default for Direction {
-    fn default() -> Self {
-        Direction::Increasing
-    }
-}
-
 pub type LayoutRect = euclid::Rect<u16>;
 
-pub trait Layout {
+pub trait Layout : Commandable {
     fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action>;
-    fn commands(&self) -> Vec<String> {
-        Default::default()
-    }
-    fn execute(&mut self, command: String) {
-        eprintln!("Unhandled command: {}", command);
-    }
 }
 
 pub enum Action {
@@ -81,15 +63,15 @@ pub fn root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
     LayoutRoot::new(name, child)
 }
 
-pub fn avoid_struts<A: Default + Layout>(child: A) -> AvoidStruts<A> {
+pub fn avoid_struts<A: Layout>(child: A) -> AvoidStruts<A> {
     AvoidStruts { child: child }
 }
 
-pub fn ignore_some_windows<A: Default + Layout>(child: A) -> IgnoreSomeWindows<A> {
+pub fn ignore_some_windows<A: Layout>(child: A) -> IgnoreSomeWindows<A> {
     IgnoreSomeWindows { child: child }
 }
 
-pub fn add_gaps<A: Default + Layout>(screen_gap: u16, window_gap: u16, child: A) -> AddGaps<A> {
+pub fn add_gaps<A: Layout>(screen_gap: u16, window_gap: u16, child: A) -> AddGaps<A> {
     AddGaps {
         screen_gap,
         window_gap,
@@ -97,7 +79,7 @@ pub fn add_gaps<A: Default + Layout>(screen_gap: u16, window_gap: u16, child: A)
     }
 }
 
-pub fn add_focus_border<A: Default + Layout>(
+pub fn add_focus_border<A: Layout>(
     width: u16,
     color: (u8, u8, u8),
     child: A,
@@ -108,15 +90,16 @@ pub fn add_focus_border<A: Default + Layout>(
         child: child,
     }
 }
+
 pub fn grid() -> GridLayout {
-    Default::default()
+    GridLayout {}
 }
 
 pub fn linear(direction: Direction, axis: Axis) -> LinearLayout {
     LinearLayout { direction, axis }
 }
 
-pub fn split<A: Default + Layout, B: Default + Layout>(
+pub fn split<A: Layout, B: Layout>(
     direction: Direction,
     axis: Axis,
     ratio: f64,
@@ -191,12 +174,12 @@ impl LayoutRoot {
 //------------------------------------------------------------------
 //
 
-#[derive(Clone, Default)]
-pub struct IgnoreSomeWindows<A: Default> {
+#[derive(Clone)]
+pub struct IgnoreSomeWindows<A: Layout> {
     child: A,
 }
 
-impl<A: Default + Layout> Layout for IgnoreSomeWindows<A> {
+impl<A: Layout> Layout for IgnoreSomeWindows<A> {
     fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         self.child.layout(
             rect,
@@ -210,7 +193,9 @@ impl<A: Default + Layout> Layout for IgnoreSomeWindows<A> {
                 .collect::<Vec<_>>(),
         )
     }
+}
 
+impl<A: Layout> Commandable for IgnoreSomeWindows<A> {
     fn commands(&self) -> Vec<String> {
         self.child.commands()
     }
@@ -224,12 +209,12 @@ impl<A: Default + Layout> Layout for IgnoreSomeWindows<A> {
 //------------------------------------------------------------------
 //
 
-#[derive(Clone, Default)]
-pub struct AvoidStruts<A: Default> {
+#[derive(Clone)]
+pub struct AvoidStruts<A: Layout> {
     child: A,
 }
 
-impl<A: Default + Layout> Layout for AvoidStruts<A> {
+impl<A: Layout> Layout for AvoidStruts<A> {
     fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         let mut r = *rect;
 
@@ -249,7 +234,9 @@ impl<A: Default + Layout> Layout for AvoidStruts<A> {
 
         self.child.layout(&r, &windows)
     }
+}
 
+impl<A: Layout> Commandable for AvoidStruts<A> {
     fn commands(&self) -> Vec<String> {
         self.child.commands()
     }
@@ -263,14 +250,14 @@ impl<A: Default + Layout> Layout for AvoidStruts<A> {
 //------------------------------------------------------------------
 //
 
-#[derive(Clone, Default)]
-pub struct AddGaps<A: Default> {
+#[derive(Clone)]
+pub struct AddGaps<A: Layout> {
     pub screen_gap: u16,
     pub window_gap: u16,
     child: A,
 }
 
-impl<A: Default + Layout> Layout for AddGaps<A> {
+impl<A: Layout> Layout for AddGaps<A> {
     fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         let mut r = *rect;
 
@@ -299,7 +286,9 @@ impl<A: Default + Layout> Layout for AddGaps<A> {
 
         actions
     }
+}
 
+impl<A: Layout> Commandable for AddGaps<A> {
     fn commands(&self) -> Vec<String> {
         self.child.commands()
     }
@@ -313,14 +302,14 @@ impl<A: Default + Layout> Layout for AddGaps<A> {
 //------------------------------------------------------------------
 //
 
-#[derive(Clone, Default)]
-pub struct AddFocusBorder<A: Default> {
+#[derive(Clone)]
+pub struct AddFocusBorder<A: Layout> {
     pub width: u16,
     pub color: (u8, u8, u8),
     child: A,
 }
 
-impl<A: Default + Layout> Layout for AddFocusBorder<A> {
+impl<A: Layout> Layout for AddFocusBorder<A> {
     fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         let mut actions = self.child.layout(rect, windows);
 
@@ -353,6 +342,9 @@ impl<A: Default + Layout> Layout for AddFocusBorder<A> {
         actions
     }
 
+}
+
+impl<A: Layout> Commandable for AddFocusBorder<A> {
     fn commands(&self) -> Vec<String> {
         self.child.commands()
     }
@@ -366,7 +358,7 @@ impl<A: Default + Layout> Layout for AddFocusBorder<A> {
 //------------------------------------------------------------------
 //
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct GridLayout {}
 
 impl Layout for GridLayout {
@@ -410,11 +402,13 @@ impl Layout for GridLayout {
     }
 }
 
+impl Commandable for GridLayout {}
+
 //
 //------------------------------------------------------------------
 //
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct SplitLayout<A, B> {
     axis: Axis,
     direction: Direction,
@@ -460,7 +454,9 @@ impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
             self.children.0.layout(&rect_1, windows)
         }
     }
+}
 
+impl<A: Layout, B: Layout> Commandable for SplitLayout<A, B> {
     fn commands(&self) -> Vec<String> {
         let c0 = self.children.0.commands();
         let c1 = self.children.1.commands();
@@ -505,7 +501,7 @@ impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
 //------------------------------------------------------------------
 //
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct LinearLayout {
     axis: Axis,
     direction: Direction,
@@ -551,6 +547,8 @@ impl Layout for LinearLayout {
         result
     }
 }
+
+impl Commandable for LinearLayout {}
 
 //
 //------------------------------------------------------------------

@@ -1,50 +1,80 @@
-use super::{
-    artist,
-    connection::*,
-    layout,
-    layout::{Axis, Direction, Layout},
-};
-use std::{collections::HashMap, rc::Rc};
+use super::{artist, connection::*, layout::*};
+use std::rc::Rc;
+
+pub trait Commandable {
+    fn commands(&self) -> Vec<String> {
+        Default::default()
+    }
+    fn execute(&mut self, command: String) {
+        eprintln!("Unhandled command: {}", command);
+    }
+}
 
 #[derive(Default)]
 pub struct WindowManager {
-    window_data: HashMap<xcb::Window, WindowData>,
     // decorators: HashMap<window::Id, Decorator>,
     workspaces: Vec<Workspace>,
     current_workspace: usize,
 }
 
+impl Commandable for WindowManager {
+    fn commands(&self) -> Vec<String> {
+        Default::default()
+    }
+    fn execute(&mut self, command: String) {
+        eprintln!("Unhandled command: {}", command);
+    }
+}
+
 pub struct Workspace {
     pub name: String,
-    pub layouts: Vec<layout::LayoutRoot>,
+    pub layouts: Vec<LayoutRoot>,
     pub current_layout: usize,
-    pub windows: Vec<xcb::Window>,
+    pub windows: Vec<WindowData>,
     pub focused_window: Option<usize>,
+}
+
+impl Commandable for Workspace {
+    fn commands(&self) -> Vec<String> {
+        Default::default()
+    }
+    fn execute(&mut self, command: String) {
+        eprintln!("Unhandled command: {}", command);
+    }
 }
 
 pub struct WindowData {
     pub id: xcb::Window,
     pub is_floating: bool,
-    pub floating_frame: Option<layout::LayoutRect>,
+    pub floating_frame: Option<LayoutRect>,
 }
 
-fn standard_layout_root<A: Default + Layout + 'static>(name: &str, child: A) -> layout::LayoutRoot {
-    let add_focus_border = layout::add_focus_border(2, (0, 255, 0), child);
-    let add_gaps = layout::add_gaps(5, 5, add_focus_border);
-    let ignore_some_windows = layout::ignore_some_windows(add_gaps);
-    let avoid_struts = layout::avoid_struts(ignore_some_windows);
-    layout::root(name, avoid_struts)
+impl Commandable for WindowData {
+    fn commands(&self) -> Vec<String> {
+        Default::default()
+    }
+    fn execute(&mut self, command: String) {
+        eprintln!("Unhandled command: {}", command);
+    }
 }
 
-fn layouts() -> Vec<layout::LayoutRoot> {
+fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
+    let add_focus_border = add_focus_border(2, (0, 255, 0), child);
+    let add_gaps = add_gaps(5, 5, add_focus_border);
+    let ignore_some_windows = ignore_some_windows(add_gaps);
+    let avoid_struts = avoid_struts(ignore_some_windows);
+    root(name, avoid_struts)
+}
+
+fn layouts() -> Vec<LayoutRoot> {
     vec![
         standard_layout_root(
             "monad_tall_right",
-            layout::monad(Direction::Decreasing, Axis::X, 0.75, 1),
+            monad(Direction::Decreasing, Axis::X, 0.75, 1),
         ),
         standard_layout_root(
             "monad_wide_top",
-            layout::monad(Direction::Increasing, Axis::Y, 0.75, 1),
+            monad(Direction::Increasing, Axis::Y, 0.75, 1),
         ),
     ]
 }
@@ -82,34 +112,20 @@ impl WindowManager {
 
         while let Some(e) = connection.wait_for_event() {
             match e.response_type() {
-                xcb::CREATE_NOTIFY => self.create_notify(unsafe { xcb::cast_event(&e) }),
-                xcb::DESTROY_NOTIFY => self.destroy_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::CONFIGURE_REQUEST => self.configure_request(unsafe { xcb::cast_event(&e) }),
                 xcb::PROPERTY_NOTIFY => self.property_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::MAP_REQUEST => self.map_request(unsafe { xcb::cast_event(&e) }),
                 xcb::MAP_NOTIFY => self.map_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::UNMAP_NOTIFY => self.unmap_notify(unsafe { xcb::cast_event(&e) }),
-                xcb::CLIENT_MESSAGE => (),
-                xcb::CONFIGURE_NOTIFY => (),
-                xcb::MAPPING_NOTIFY => (),
+                xcb::CLIENT_MESSAGE
+                | xcb::CREATE_NOTIFY
+                | xcb::DESTROY_NOTIFY
+                | xcb::CONFIGURE_NOTIFY
+                | xcb::MAPPING_NOTIFY => (),
                 t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
             }
             connection.flush();
         }
-    }
-
-    pub fn focus_down_stack(&mut self) {}
-    pub fn focus_up_stack(&mut self) {}
-    pub fn focus_on_selected(&mut self) {}
-    pub fn swap_focused_with_selected(&mut self) {}
-    pub fn move_focused_window_up_stack(&mut self) {}
-    pub fn move_focused_window_down_stack(&mut self) {}
-    pub fn move_focused_window_to_head(&mut self) {}
-    pub fn switch_to_workspace(&mut self, workspace_number: usize) {
-        // 1. Copy current workspace into temp
-        // 2. Unmap all windows
-        // 3. Overwrite workspace from temp
-        // 4. Map new workspace's windows, set input focus, update layout
     }
 
     fn set_initial_root_window_properties(&self) {
@@ -173,7 +189,7 @@ impl WindowManager {
         connection.flush();
     }
 
-    fn add_workspace(&mut self, name: &str, layouts: Vec<layout::LayoutRoot>) {
+    fn add_workspace(&mut self, name: &str, layouts: Vec<LayoutRoot>) {
         self.workspaces.push(Workspace {
             name: String::from(name),
             windows: Default::default(),
@@ -181,21 +197,6 @@ impl WindowManager {
             layouts,
             current_layout: 0,
         })
-    }
-
-    fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
-        self.window_data.insert(
-            e.window(),
-            WindowData {
-                id: e.window(),
-                is_floating: false,
-                floating_frame: None,
-            },
-        );
-    }
-
-    fn destroy_notify(&mut self, e: &xcb::DestroyNotifyEvent) {
-        self.window_data.remove(&e.window());
     }
 
     fn configure_request(&mut self, e: &xcb::ConfigureRequestEvent) {
@@ -269,13 +270,12 @@ impl WindowManager {
                         self.set_focused_window(Some(new_index));
                         self.update_layout();
                     }
-                    "select_window_and_move" => {}
-                    "select_window_and_swap" => {}
-                    "select_window_and_move_to_head" => {}
-                    "select_window_and_focus" => {}
+                    "move_window_to_window_X/" => {}
+                    "swap_window_with_window_X/" => {}
+                    "focus_window_X/" => {}
                     "close_window" => {
                         let ws = &self.workspaces[self.current_workspace];
-                        let window = ws.windows[ws.focused_window.unwrap()];
+                        let window = ws.windows[ws.focused_window.unwrap()].id;
                         xcb::kill_client(&connection(), window);
                     }
                     "quit" => {}
@@ -289,13 +289,18 @@ impl WindowManager {
     fn map_notify(&mut self, e: &xcb::MapNotifyEvent) {
         let ws = &mut self.workspaces[self.current_workspace];
         // TODO: maybe we don't want to focus the new window?
+        let data = WindowData {
+            id: e.window(),
+            is_floating: false,
+            floating_frame: None,
+        };
         match ws.focused_window {
             Some(index) => {
-                ws.windows.insert(index, e.window());
+                ws.windows.insert(index, data);
                 self.set_focused_window(Some(index));
             }
             None => {
-                ws.windows.insert(0, e.window());
+                ws.windows.insert(0, data);
                 self.set_focused_window(Some(0));
             }
         }
@@ -304,23 +309,25 @@ impl WindowManager {
 
     fn unmap_notify(&mut self, e: &xcb::UnmapNotifyEvent) {
         let ws = &mut self.workspaces[self.current_workspace];
-        let mut fw = ws.focused_window;
-        match fw {
-            Some(index) if ws.windows[index] == e.window() => {
-                if ws.windows.len() == 1 {
-                    ws.windows.remove(0);
-                    fw = None;
-                } else {
-                    ws.windows.remove(index);
-                    fw = Some(index.min(ws.windows.len() - 1));
-                }
+        if let Some(pos) = ws.windows.iter().position(|w| w.id == e.window()) {
+            ws.windows.remove(pos);
+            if ws.windows.is_empty() {
+                self.set_focused_window(None)
+            } else {
+                let new_fw = match ws.focused_window {
+                    Some(index) => {
+                        if pos < index {
+                            Some(index - 1)
+                        } else {
+                            Some(index)
+                        }
+                    }
+                    _ => None,
+                };
+                self.set_focused_window(new_fw);
             }
-            _ => {
-                ws.windows.remove_item(&e.window());
-            }
-        };
-        self.set_focused_window(fw);
-        self.update_layout();
+            self.update_layout();
+        }
     }
 
     fn set_focused_window(&mut self, w: Option<usize>) {
@@ -328,7 +335,7 @@ impl WindowManager {
         ws.focused_window = w;
         match w {
             Some(index) => {
-                let window = ws.windows[index];
+                let window = ws.windows[index].id;
                 let connection = connection();
                 xcb::set_input_focus(
                     &connection,
@@ -345,16 +352,16 @@ impl WindowManager {
 
     fn update_layout(&mut self) {
         let ws = &self.workspaces[self.current_workspace];
-        let windows: Vec<&WindowData> = ws.windows.iter().map(|id| &self.window_data[id]).collect();
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
+        let windows = ws.windows.iter().collect::<Vec<&WindowData>>();
         let actions = ws.layouts[ws.current_layout].layout(
             &euclid::rect(0, 0, screen.width_in_pixels(), screen.height_in_pixels()),
             &windows,
         );
         for a in actions {
             match a {
-                layout::Action::Position {
+                Action::Position {
                     id,
                     rect,
                     border_width,
