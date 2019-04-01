@@ -1,4 +1,4 @@
-use super::{artist, connection::*, window_manager};
+use super::{artist, connection::*, window_manager::WindowData};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -55,7 +55,13 @@ impl Default for Direction {
 pub type LayoutRect = euclid::Rect<u16>;
 
 pub trait Layout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action>;
+    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action>;
+    fn commands(&self) -> Vec<String> {
+        Default::default()
+    }
+    fn execute(&mut self, command: String) {
+        eprintln!("Unhandled command: {}", command);
+    }
 }
 
 pub enum Action {
@@ -71,11 +77,8 @@ pub enum Action {
     },
 }
 
-pub fn root<A: Default + Layout>(child: A) -> LayoutRoot<A> {
-    LayoutRoot {
-        child: child,
-        ..Default::default()
-    }
+pub fn root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
+    LayoutRoot::new(name, child)
 }
 
 pub fn avoid_struts<A: Default + Layout>(child: A) -> AvoidStruts<A> {
@@ -150,14 +153,37 @@ pub fn monad(
 //------------------------------------------------------------------
 //
 
-#[derive(Clone, Default)]
-pub struct LayoutRoot<A: Default> {
-    child: A,
+pub struct LayoutRoot {
+    name: String,
+    child: Box<Layout>,
 }
 
-impl<A: Default + Layout> Layout for LayoutRoot<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
+impl LayoutRoot {
+    pub fn new<T: Layout + 'static>(name: &str, child: T) -> LayoutRoot {
+        LayoutRoot {
+            name: name.to_owned(),
+            child: Box::new(child),
+        }
+    }
+
+    pub fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    pub fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         self.child.layout(rect, &windows)
+    }
+
+    pub fn commands(&self) -> Vec<String> {
+        self.child
+            .commands()
+            .iter()
+            .map(|s| format!("{}/{}", self.name, s))
+            .collect()
+    }
+
+    pub fn execute(&mut self, command: String) {
+        self.child.execute(command);
     }
 }
 
@@ -171,7 +197,7 @@ pub struct IgnoreSomeWindows<A: Default> {
 }
 
 impl<A: Default + Layout> Layout for IgnoreSomeWindows<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         self.child.layout(
             rect,
             &windows
@@ -183,6 +209,14 @@ impl<A: Default + Layout> Layout for IgnoreSomeWindows<A> {
                 .map(|&w| w)
                 .collect::<Vec<_>>(),
         )
+    }
+
+    fn commands(&self) -> Vec<String> {
+        self.child.commands()
+    }
+
+    fn execute(&mut self, command: String) {
+        self.child.execute(command);
     }
 }
 
@@ -196,7 +230,7 @@ pub struct AvoidStruts<A: Default> {
 }
 
 impl<A: Default + Layout> Layout for AvoidStruts<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         let mut r = *rect;
 
         for window in windows {
@@ -215,6 +249,14 @@ impl<A: Default + Layout> Layout for AvoidStruts<A> {
 
         self.child.layout(&r, &windows)
     }
+
+    fn commands(&self) -> Vec<String> {
+        self.child.commands()
+    }
+
+    fn execute(&mut self, command: String) {
+        self.child.execute(command);
+    }
 }
 
 //
@@ -229,7 +271,7 @@ pub struct AddGaps<A: Default> {
 }
 
 impl<A: Default + Layout> Layout for AddGaps<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         let mut r = *rect;
 
         r.origin.x += self.screen_gap;
@@ -257,6 +299,14 @@ impl<A: Default + Layout> Layout for AddGaps<A> {
 
         actions
     }
+
+    fn commands(&self) -> Vec<String> {
+        self.child.commands()
+    }
+
+    fn execute(&mut self, command: String) {
+        self.child.execute(command);
+    }
 }
 
 //
@@ -271,7 +321,7 @@ pub struct AddFocusBorder<A: Default> {
 }
 
 impl<A: Default + Layout> Layout for AddFocusBorder<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         let mut actions = self.child.layout(rect, windows);
 
         let focused_window = xcb::get_input_focus(&connection())
@@ -302,6 +352,14 @@ impl<A: Default + Layout> Layout for AddFocusBorder<A> {
 
         actions
     }
+
+    fn commands(&self) -> Vec<String> {
+        self.child.commands()
+    }
+
+    fn execute(&mut self, command: String) {
+        self.child.execute(command);
+    }
 }
 
 //
@@ -312,7 +370,7 @@ impl<A: Default + Layout> Layout for AddFocusBorder<A> {
 pub struct GridLayout {}
 
 impl Layout for GridLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         if windows.is_empty() {
             return Default::default();
         }
@@ -366,7 +424,7 @@ pub struct SplitLayout<A, B> {
 }
 
 impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         if windows.is_empty() {
             return Default::default();
         }
@@ -402,6 +460,45 @@ impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
             self.children.0.layout(&rect_1, windows)
         }
     }
+
+    fn commands(&self) -> Vec<String> {
+        let c0 = self.children.0.commands();
+        let c1 = self.children.1.commands();
+
+        let mut result = Vec::with_capacity(c0.len() + c1.len() + 4);
+
+        result.push(String::from("increase_count"));
+        if self.count > 1 {
+            result.push(String::from("decrease_count"));
+        }
+        if self.ratio < 0.9 {
+            result.push(String::from("increase_ratio"));
+        }
+        if self.ratio > 0.1 {
+            result.push(String::from("decrease_ratio"));
+        }
+
+        result.extend(c0.iter().map(|c| format!("0/{}", c)));
+        result.extend(c1.iter().map(|c| format!("1/{}", c)));
+
+        result
+    }
+
+    fn execute(&mut self, command: String) {
+        if command.starts_with("0/") {
+            self.children.0.execute(command.split_at(2).1.to_owned())
+        } else if command.starts_with("1/") {
+            self.children.1.execute(command.split_at(2).1.to_owned())
+        } else {
+            match command.as_str() {
+                "increase_count" => self.count += 1,
+                "decrease_count" if self.count > 1 => self.count -= 1,
+                "increase_ratio" if self.ratio < 0.9 => self.ratio += 0.05,
+                "decrease_ratio" if self.ratio > 0.1 => self.ratio -= 0.05,
+                _ => {}
+            }
+        }
+    }
 }
 
 //
@@ -415,7 +512,7 @@ pub struct LinearLayout {
 }
 
 impl Layout for LinearLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&window_manager::Window]) -> Vec<Action> {
+    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         if windows.is_empty() {
             return Default::default();
         }

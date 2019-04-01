@@ -8,40 +8,44 @@ use std::{collections::HashMap, rc::Rc};
 
 #[derive(Default)]
 pub struct WindowManager {
-    windows: HashMap<xcb::Window, Window>,
+    window_data: HashMap<xcb::Window, WindowData>,
     // decorators: HashMap<window::Id, Decorator>,
     workspaces: Vec<Workspace>,
     current_workspace: usize,
 }
 
-pub struct Window {
+pub struct Workspace {
+    pub name: String,
+    pub layouts: Vec<layout::LayoutRoot>,
+    pub current_layout: usize,
+    pub windows: Vec<xcb::Window>,
+    pub focused_window: Option<usize>,
+}
+
+pub struct WindowData {
     pub id: xcb::Window,
     pub is_floating: bool,
     pub floating_frame: Option<layout::LayoutRect>,
 }
 
-pub struct Workspace {
-    pub name: String,
-    pub layouts: Vec<Box<layout::Layout>>,
-    pub current_layout: usize,
-    pub windows: Vec<xcb::Window>,
-    pub focused_window: Option<xcb::Window>,
-}
-
-fn standard_layout_root<A: Default + Layout + 'static>(child: A) -> Box<layout::Layout> {
+fn standard_layout_root<A: Default + Layout + 'static>(name: &str, child: A) -> layout::LayoutRoot {
     let add_focus_border = layout::add_focus_border(2, (0, 255, 0), child);
     let add_gaps = layout::add_gaps(5, 5, add_focus_border);
     let ignore_some_windows = layout::ignore_some_windows(add_gaps);
     let avoid_struts = layout::avoid_struts(ignore_some_windows);
-    let root = layout::root(avoid_struts);
-
-    Box::new(root)
+    layout::root(name, avoid_struts)
 }
 
-fn layouts() -> Vec<Box<layout::Layout>> {
+fn layouts() -> Vec<layout::LayoutRoot> {
     vec![
-        standard_layout_root(layout::monad(Direction::Decreasing, Axis::X, 0.75, 1)),
-        standard_layout_root(layout::monad(Direction::Increasing, Axis::Y, 0.75, 1)),
+        standard_layout_root(
+            "monad_tall_right",
+            layout::monad(Direction::Decreasing, Axis::X, 0.75, 1),
+        ),
+        standard_layout_root(
+            "monad_wide_top",
+            layout::monad(Direction::Increasing, Axis::Y, 0.75, 1),
+        ),
     ]
 }
 
@@ -65,7 +69,9 @@ impl WindowManager {
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let values = [(
             xcb::CW_EVENT_MASK,
-            xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT | xcb::EVENT_MASK_PROPERTY_CHANGE,
+            xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY
+                | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT
+                | xcb::EVENT_MASK_PROPERTY_CHANGE,
         )];
         xcb::change_window_attributes_checked(&connection, screen.root(), &values)
             .request_check()
@@ -167,7 +173,7 @@ impl WindowManager {
         connection.flush();
     }
 
-    fn add_workspace(&mut self, name: &str, layouts: Vec<Box<layout::Layout>>) {
+    fn add_workspace(&mut self, name: &str, layouts: Vec<layout::LayoutRoot>) {
         self.workspaces.push(Workspace {
             name: String::from(name),
             windows: Default::default(),
@@ -178,9 +184,9 @@ impl WindowManager {
     }
 
     fn create_notify(&mut self, e: &xcb::CreateNotifyEvent) {
-        self.windows.insert(
+        self.window_data.insert(
             e.window(),
-            Window {
+            WindowData {
                 id: e.window(),
                 is_floating: false,
                 floating_frame: None,
@@ -189,7 +195,7 @@ impl WindowManager {
     }
 
     fn destroy_notify(&mut self, e: &xcb::DestroyNotifyEvent) {
-        self.windows.remove(&e.window());
+        self.window_data.remove(&e.window());
     }
 
     fn configure_request(&mut self, e: &xcb::ConfigureRequestEvent) {
@@ -206,7 +212,77 @@ impl WindowManager {
         if e.atom() == *ATOM_CERAMIC_COMMAND && e.state() == xcb::PROPERTY_NEW_VALUE as u8 {
             let command = get_string_property(e.window(), e.atom());
             xcb::delete_property(&connection(), e.window(), e.atom());
-            println!("COMMAND: {}", command);
+            let ws = &mut self.workspaces[self.current_workspace];
+            let layout_name = format!("layout/{}/", ws.layouts[ws.current_layout].name());
+            if command.starts_with(layout_name.as_str()) {
+                ws.layouts[ws.current_layout]
+                    .execute(command.split_at(7 + layout_name.len()).1.to_owned());
+                self.update_layout();
+            } else if command.starts_with("goto_workspace/") {
+                let workspace_name = command.split_at(14).1;
+            } else if command.starts_with("move_window_to_workspace/") {
+                let workspace_name = command.split_at(24).1;
+            } else {
+                match command.as_str() {
+                    "goto_next_workspace" => {}
+                    "goto_previous_workspace" => {}
+                    "move_window_to_head" => {
+                        let ws = &mut self.workspaces[self.current_workspace];
+                        // Wrap around
+                        let new_index = 0;
+                        let window = ws.windows.remove(ws.focused_window.unwrap());
+                        ws.windows.insert(new_index, window);
+                        self.set_focused_window(Some(new_index));
+                        self.update_layout();
+                    }
+                    "move_window_forward" => {
+                        let ws = &mut self.workspaces[self.current_workspace];
+                        // Wrap around
+                        let new_index = (ws.focused_window.unwrap() + 1) % ws.windows.len();
+                        let window = ws.windows.remove(ws.focused_window.unwrap());
+                        ws.windows.insert(new_index, window);
+                        self.set_focused_window(Some(new_index));
+                        self.update_layout();
+                    }
+                    "move_window_backward" => {
+                        let ws = &mut self.workspaces[self.current_workspace];
+                        // Wrap around
+                        let new_index =
+                            (ws.focused_window.unwrap() + ws.windows.len() - 1) % ws.windows.len();
+                        let window = ws.windows.remove(ws.focused_window.unwrap());
+                        ws.windows.insert(new_index, window);
+                        self.set_focused_window(Some(new_index));
+                        self.update_layout();
+                    }
+                    "focus_next_window" => {
+                        let ws = &mut self.workspaces[self.current_workspace];
+                        // Wrap around
+                        let new_index = (ws.focused_window.unwrap() + 1) % ws.windows.len();
+                        self.set_focused_window(Some(new_index));
+                        self.update_layout();
+                    }
+                    "focus_previous_window" => {
+                        let ws = &self.workspaces[self.current_workspace];
+                        // Wrap around
+                        let new_index =
+                            (ws.focused_window.unwrap() + ws.windows.len() - 1) % ws.windows.len();
+                        self.set_focused_window(Some(new_index));
+                        self.update_layout();
+                    }
+                    "select_window_and_move" => {}
+                    "select_window_and_swap" => {}
+                    "select_window_and_move_to_head" => {}
+                    "select_window_and_focus" => {}
+                    "close_window" => {
+                        let ws = &self.workspaces[self.current_workspace];
+                        let window = ws.windows[ws.focused_window.unwrap()];
+                        xcb::kill_client(&connection(), window);
+                    }
+                    "quit" => {}
+                    "reload" => {}
+                    _ => eprintln!("Invalid command: {}", command),
+                }
+            }
         }
     }
 
@@ -214,15 +290,15 @@ impl WindowManager {
         let ws = &mut self.workspaces[self.current_workspace];
         // TODO: maybe we don't want to focus the new window?
         match ws.focused_window {
-            Some(id) => {
-                let index = ws.windows.iter().position(|x| *x == id).unwrap();
+            Some(index) => {
                 ws.windows.insert(index, e.window());
+                self.set_focused_window(Some(index));
             }
             None => {
                 ws.windows.insert(0, e.window());
+                self.set_focused_window(Some(0));
             }
         }
-        self.set_focused_window(Some(e.window()));
         self.update_layout();
     }
 
@@ -230,15 +306,13 @@ impl WindowManager {
         let ws = &mut self.workspaces[self.current_workspace];
         let mut fw = ws.focused_window;
         match fw {
-            Some(id) if id == e.window() => {
+            Some(index) if ws.windows[index] == e.window() => {
                 if ws.windows.len() == 1 {
                     ws.windows.remove(0);
                     fw = None;
                 } else {
-                    // TODO: the next window to focus might not be as simple as this
-                    let index = ws.windows.iter().position(|x| *x == id).unwrap();
                     ws.windows.remove(index);
-                    fw = Some(ws.windows[index.min(ws.windows.len() - 1)]);
+                    fw = Some(index.min(ws.windows.len() - 1));
                 }
             }
             _ => {
@@ -249,29 +323,29 @@ impl WindowManager {
         self.update_layout();
     }
 
-    fn set_focused_window(&mut self, w: Option<xcb::Window>) {
-        if self.workspaces[self.current_workspace].focused_window != w {
-            self.workspaces[self.current_workspace].focused_window = w;
-            match w {
-                Some(id) => {
-                    let connection = connection();
-                    xcb::set_input_focus(
-                        &connection,
-                        xcb::INPUT_FOCUS_NONE as u8,
-                        id,
-                        xcb::CURRENT_TIME,
-                    );
-                    let screen = connection.get_setup().roots().nth(0).unwrap();
-                    set_window_property(screen.root(), *ATOM__NET_ACTIVE_WINDOW, id);
-                }
-                _ => {}
+    fn set_focused_window(&mut self, w: Option<usize>) {
+        let ws = &mut self.workspaces[self.current_workspace];
+        ws.focused_window = w;
+        match w {
+            Some(index) => {
+                let window = ws.windows[index];
+                let connection = connection();
+                xcb::set_input_focus(
+                    &connection,
+                    xcb::INPUT_FOCUS_NONE as u8,
+                    window,
+                    xcb::CURRENT_TIME,
+                );
+                let screen = connection.get_setup().roots().nth(0).unwrap();
+                set_window_property(screen.root(), *ATOM__NET_ACTIVE_WINDOW, window);
             }
+            _ => {}
         }
     }
 
     fn update_layout(&mut self) {
         let ws = &self.workspaces[self.current_workspace];
-        let windows: Vec<&Window> = ws.windows.iter().map(|id| &self.windows[id]).collect();
+        let windows: Vec<&WindowData> = ws.windows.iter().map(|id| &self.window_data[id]).collect();
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let actions = ws.layouts[ws.current_layout].layout(
@@ -314,5 +388,19 @@ impl WindowManager {
                 _ => (),
             }
         }
+
+        self.update_commands();
+    }
+
+    fn update_commands(&self) {
+        let ws = &self.workspaces[self.current_workspace];
+        let commands = ws.layouts[ws.current_layout].commands();
+        let connection = connection();
+        let screen = connection.get_setup().roots().nth(0).unwrap();
+        set_strings_property(
+            screen.root(),
+            *ATOM_CERAMIC_AVAILABLE_COMMANDS,
+            &commands.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
+        );
     }
 }
