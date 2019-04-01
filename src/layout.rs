@@ -85,6 +85,7 @@ pub fn avoid_struts<A: Default + Layout>(child: A) -> AvoidStruts<A> {
 pub fn ignore_some_windows<A: Default + Layout>(child: A) -> IgnoreSomeWindows<A> {
     IgnoreSomeWindows { child: child }
 }
+
 pub fn add_gaps<A: Default + Layout>(screen_gap: u16, window_gap: u16, child: A) -> AddGaps<A> {
     AddGaps {
         screen_gap,

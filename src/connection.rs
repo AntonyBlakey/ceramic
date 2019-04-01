@@ -84,6 +84,8 @@ lazy_static! {
     pub static ref ATOM__NET_WM_ACTION_CLOSE: u32 = get_atom("_NET_WM_ACTION_CLOSE");
     pub static ref ATOM__NET_WM_ACTION_ABOVE: u32 = get_atom("_NET_WM_ACTION_ABOVE");
     pub static ref ATOM__NET_WM_ACTION_BELOW: u32 = get_atom("_NET_WM_ACTION_BELOW");
+    //
+    pub static ref ATOM_CERAMIC_COMMAND: u32 = get_atom("CERAMIC_COMMAND");
 }
 
 pub fn set_cardinal_property(window: xcb::Window, name_atom: u32, value: u32) {

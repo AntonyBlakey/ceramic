@@ -17,6 +17,7 @@ pub struct WindowManager {
 pub struct Window {
     pub id: xcb::Window,
     pub is_floating: bool,
+    pub floating_frame: Option<layout::LayoutRect>,
 }
 
 pub struct Workspace {
@@ -64,7 +65,7 @@ impl WindowManager {
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let values = [(
             xcb::CW_EVENT_MASK,
-            xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT,
+            xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT | xcb::EVENT_MASK_PROPERTY_CHANGE,
         )];
         xcb::change_window_attributes_checked(&connection, screen.root(), &values)
             .request_check()
@@ -78,12 +79,13 @@ impl WindowManager {
                 xcb::CREATE_NOTIFY => self.create_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::DESTROY_NOTIFY => self.destroy_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::CONFIGURE_REQUEST => self.configure_request(unsafe { xcb::cast_event(&e) }),
-                xcb::CONFIGURE_NOTIFY => self.configure_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::PROPERTY_NOTIFY => self.property_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::MAP_REQUEST => self.map_request(unsafe { xcb::cast_event(&e) }),
                 xcb::MAP_NOTIFY => self.map_notify(unsafe { xcb::cast_event(&e) }),
                 xcb::UNMAP_NOTIFY => self.unmap_notify(unsafe { xcb::cast_event(&e) }),
-                xcb::CLIENT_MESSAGE => self.client_message(unsafe { xcb::cast_event(&e) }),
+                xcb::CLIENT_MESSAGE => (),
+                xcb::CONFIGURE_NOTIFY => (),
+                xcb::MAPPING_NOTIFY => (),
                 t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
             }
             connection.flush();
@@ -181,6 +183,7 @@ impl WindowManager {
             Window {
                 id: e.window(),
                 is_floating: false,
+                floating_frame: None,
             },
         );
     }
@@ -199,12 +202,12 @@ impl WindowManager {
         xcb::map_window(&connection(), e.window());
     }
 
-    fn configure_notify(&mut self, e: &xcb::ConfigureNotifyEvent) {
-        // println!("Configure Notify: {:x}", e.window());
-    }
-
     fn property_notify(&mut self, e: &xcb::PropertyNotifyEvent) {
-        println!("Property Notify: {:x}", e.window());
+        if e.atom() == *ATOM_CERAMIC_COMMAND && e.state() == xcb::PROPERTY_NEW_VALUE as u8 {
+            let command = get_string_property(e.window(), e.atom());
+            xcb::delete_property(&connection(), e.window(), e.atom());
+            println!("COMMAND: {}", command);
+        }
     }
 
     fn map_notify(&mut self, e: &xcb::MapNotifyEvent) {
@@ -264,10 +267,6 @@ impl WindowManager {
                 _ => {}
             }
         }
-    }
-
-    fn client_message(&mut self, e: &xcb::ClientMessageEvent) {
-        println!("Client Message: {:x}", e.window());
     }
 
     fn update_layout(&mut self) {
