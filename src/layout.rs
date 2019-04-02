@@ -1,4 +1,4 @@
-use super::{artist, connection::*, window_manager::WindowData, window_manager::Commandable};
+use super::{artist, connection::*, window_data::WindowData, window_manager::Commands};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -42,7 +42,7 @@ pub enum Direction {
 
 pub type LayoutRect = euclid::Rect<u16>;
 
-pub trait Layout : Commandable {
+pub trait Layout: Commands {
     fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action>;
 }
 
@@ -79,11 +79,7 @@ pub fn add_gaps<A: Layout>(screen_gap: u16, window_gap: u16, child: A) -> AddGap
     }
 }
 
-pub fn add_focus_border<A: Layout>(
-    width: u16,
-    color: (u8, u8, u8),
-    child: A,
-) -> AddFocusBorder<A> {
+pub fn add_focus_border<A: Layout>(width: u16, color: (u8, u8, u8), child: A) -> AddFocusBorder<A> {
     AddFocusBorder {
         width,
         color,
@@ -157,16 +153,16 @@ impl LayoutRoot {
         self.child.layout(rect, &windows)
     }
 
-    pub fn commands(&self) -> Vec<String> {
+    pub fn get_commands(&self) -> Vec<String> {
         self.child
-            .commands()
+            .get_commands()
             .iter()
             .map(|s| format!("{}/{}", self.name, s))
             .collect()
     }
 
-    pub fn execute(&mut self, command: String) {
-        self.child.execute(command);
+    pub fn execute_command(&mut self, command: &str) {
+        self.child.execute_command(command);
     }
 }
 
@@ -195,13 +191,13 @@ impl<A: Layout> Layout for IgnoreSomeWindows<A> {
     }
 }
 
-impl<A: Layout> Commandable for IgnoreSomeWindows<A> {
-    fn commands(&self) -> Vec<String> {
-        self.child.commands()
+impl<A: Layout> Commands for IgnoreSomeWindows<A> {
+    fn get_commands(&self) -> Vec<String> {
+        self.child.get_commands()
     }
 
-    fn execute(&mut self, command: String) {
-        self.child.execute(command);
+    fn execute_command(&mut self, command: &str) {
+        self.child.execute_command(command);
     }
 }
 
@@ -236,13 +232,13 @@ impl<A: Layout> Layout for AvoidStruts<A> {
     }
 }
 
-impl<A: Layout> Commandable for AvoidStruts<A> {
-    fn commands(&self) -> Vec<String> {
-        self.child.commands()
+impl<A: Layout> Commands for AvoidStruts<A> {
+    fn get_commands(&self) -> Vec<String> {
+        self.child.get_commands()
     }
 
-    fn execute(&mut self, command: String) {
-        self.child.execute(command);
+    fn execute_command(&mut self, command: &str) {
+        self.child.execute_command(command);
     }
 }
 
@@ -288,13 +284,13 @@ impl<A: Layout> Layout for AddGaps<A> {
     }
 }
 
-impl<A: Layout> Commandable for AddGaps<A> {
-    fn commands(&self) -> Vec<String> {
-        self.child.commands()
+impl<A: Layout> Commands for AddGaps<A> {
+    fn get_commands(&self) -> Vec<String> {
+        self.child.get_commands()
     }
 
-    fn execute(&mut self, command: String) {
-        self.child.execute(command);
+    fn execute_command(&mut self, command: &str) {
+        self.child.execute_command(command);
     }
 }
 
@@ -341,16 +337,15 @@ impl<A: Layout> Layout for AddFocusBorder<A> {
 
         actions
     }
-
 }
 
-impl<A: Layout> Commandable for AddFocusBorder<A> {
-    fn commands(&self) -> Vec<String> {
-        self.child.commands()
+impl<A: Layout> Commands for AddFocusBorder<A> {
+    fn get_commands(&self) -> Vec<String> {
+        self.child.get_commands()
     }
 
-    fn execute(&mut self, command: String) {
-        self.child.execute(command);
+    fn execute_command(&mut self, command: &str) {
+        self.child.execute_command(command);
     }
 }
 
@@ -402,7 +397,7 @@ impl Layout for GridLayout {
     }
 }
 
-impl Commandable for GridLayout {}
+impl Commands for GridLayout {}
 
 //
 //------------------------------------------------------------------
@@ -456,10 +451,10 @@ impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
     }
 }
 
-impl<A: Layout, B: Layout> Commandable for SplitLayout<A, B> {
-    fn commands(&self) -> Vec<String> {
-        let c0 = self.children.0.commands();
-        let c1 = self.children.1.commands();
+impl<A: Layout, B: Layout> Commands for SplitLayout<A, B> {
+    fn get_commands(&self) -> Vec<String> {
+        let c0 = self.children.0.get_commands();
+        let c1 = self.children.1.get_commands();
 
         let mut result = Vec::with_capacity(c0.len() + c1.len() + 4);
 
@@ -480,13 +475,13 @@ impl<A: Layout, B: Layout> Commandable for SplitLayout<A, B> {
         result
     }
 
-    fn execute(&mut self, command: String) {
+    fn execute_command(&mut self, command: &str) {
         if command.starts_with("0/") {
-            self.children.0.execute(command.split_at(2).1.to_owned())
+            self.children.0.execute_command(command.split_at(2).1)
         } else if command.starts_with("1/") {
-            self.children.1.execute(command.split_at(2).1.to_owned())
+            self.children.1.execute_command(command.split_at(2).1)
         } else {
-            match command.as_str() {
+            match command {
                 "increase_count" => self.count += 1,
                 "decrease_count" if self.count > 1 => self.count -= 1,
                 "increase_ratio" if self.ratio < 0.9 => self.ratio += 0.05,
@@ -548,7 +543,7 @@ impl Layout for LinearLayout {
     }
 }
 
-impl Commandable for LinearLayout {}
+impl Commands for LinearLayout {}
 
 //
 //------------------------------------------------------------------
