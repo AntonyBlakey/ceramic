@@ -83,14 +83,47 @@ impl Workspace {
 
 impl Commands for Workspace {
     fn get_commands(&self) -> Vec<String> {
-        Default::default()
+        let mut commands: Vec<String> = self.layouts[self.current_layout]
+            .get_commands()
+            .iter()
+            .map(|c| format!("layout/{}", c))
+            .collect();
+        if self.layouts.len() > 1 {
+            commands.push(String::from("switch_to_next_layout"));
+            commands.push(String::from("switch_to_previous_layout"));
+            commands.push(String::from("switch_to_layout_named:"));
+        }
+        if self.windows.len() > 0 {
+            if let Some(index) = self.focused_window {
+                // TODO: this should be the count of floating vs. non-floating *focusable* windows
+                if self.windows.len() > 1 {
+                    commands.push(String::from("focus_on_window_with_id:"));
+                    commands.push(String::from("move_focused_window_to_head"));
+                    commands.push(String::from("move_focused_window_forward"));
+                    commands.push(String::from("move_focused_window_backward"));
+                    commands.push(String::from("move_focus_to_next_window"));
+                    commands.push(String::from("move_focus_to_previous_window"));
+                    commands.push(String::from(
+                        "move_focused_window_to_position_of_window_with_id:",
+                    ));
+                    commands.push(String::from("swap_focused_window_with_window_with_id:"));
+                }
+                commands.extend(self.windows[index].get_commands().into_iter());
+            } else {
+                commands.push(String::from("focus_on_window_with_id:"));
+            }
+        }
+        commands
     }
 
-    fn execute_command(&mut self, command: &str) {
+    fn execute_command(&mut self, command: &str, args: &[&str]) {
         if command.starts_with("layout/") {
-            self.layouts[self.current_layout].execute_command(command.split_at(7).1);
+            self.layouts[self.current_layout].execute_command(command.split_at(7).1, args);
         } else {
             match command {
+                "switch_to_next_layout" => {}
+                "switch_to_previous_layout" => {}
+                "switch_to_layout_named:" => {}
                 "focus_on_window_with_id:" => {}
                 _ => {
                     if let Some(index) = self.focused_window {
@@ -130,7 +163,7 @@ impl Commands for Workspace {
                             }
                             "move_focused_window_to_position_of_window_with_id:" => {}
                             "swap_focused_window_with_window_with_id:" => {}
-                            _ => self.windows[index].execute_command(command),
+                            _ => self.windows[index].execute_command(command, args),
                         }
                     }
                 }

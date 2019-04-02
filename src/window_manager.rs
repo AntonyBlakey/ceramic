@@ -5,7 +5,7 @@ pub trait Commands {
     fn get_commands(&self) -> Vec<String> {
         Default::default()
     }
-    fn execute_command(&mut self, command: &str) {
+    fn execute_command(&mut self, command: &str, args: &[&str]) {
         eprintln!("Unhandled command: {}", command);
     }
 }
@@ -18,7 +18,7 @@ pub struct WindowManager {
 }
 
 fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
-    let add_focus_border = add_focus_border(2, (0, 255, 0), child);
+    let add_focus_border = add_focus_border(1, (0, 255, 0), child);
     let add_gaps = add_gaps(5, 5, add_focus_border);
     let ignore_some_windows = ignore_some_windows(add_gaps);
     let avoid_struts = avoid_struts(ignore_some_windows);
@@ -172,7 +172,7 @@ impl WindowManager {
         if e.atom() == *ATOM_CERAMIC_COMMAND && e.state() == xcb::PROPERTY_NEW_VALUE as u8 {
             let command = get_string_property(e.window(), e.atom());
             xcb::delete_property(&connection(), e.window(), e.atom());
-            self.execute_command(command.as_str());
+            self.parse_and_dispatch_command(command.as_str());
         }
     }
 
@@ -204,30 +204,41 @@ impl WindowManager {
                 .collect::<Vec<&str>>(),
         );
     }
+
+    fn parse_and_dispatch_command(&mut self, command_string: &str) {
+        let mut tokens = command_string.split(' ');
+        if let Some(command) = tokens.next() {
+            let args = tokens.collect::<Vec<_>>();
+            self.execute_command(command, &args);
+        }
+    }
 }
 
 impl Commands for WindowManager {
     fn get_commands(&self) -> Vec<String> {
-        let ws = &self.workspaces[self.current_workspace];
-        // TODO: add window-manager level commands
-        ws.layouts[ws.current_layout].get_commands()
+        let mut commands = self.workspaces[self.current_workspace].get_commands();
+        if self.workspaces.len() > 1 {
+            commands.push(String::from("switch_to_workspace_named:"));
+            commands.push(String::from("move_focused_window_to_workspace_named:"));
+            commands.push(String::from("switch_to_next_workspace"));
+            commands.push(String::from("switch_to_previous_workspace"));
+        }
+        commands.push(String::from("quit"));
+        commands.push(String::from("reload"));
+        commands
     }
 
-    fn execute_command(&mut self, command: &str) {
-        if command.starts_with("switch_to_workspace_named:") {
-            let workspace_name = command.split_at(14).1;
-        } else if command.starts_with("move_focused_window_to_workspace_named:") {
-            let workspace_name = command.split_at(24).1;
-        } else {
-            match command {
-                "switch_to_next_workspace" => {}
-                "switch_to_previous_workspace" => {}
-                "quit" => {}
-                "reload" => {}
-                _ => {
-                    self.workspaces[self.current_workspace].execute_command(command);
-                    self.update_layout();
-                }
+    fn execute_command(&mut self, command: &str, args: &[&str]) {
+        match command {
+            "switch_to_workspace_named:" => {}
+            "move_focused_window_to_workspace_named:" => {}
+            "switch_to_next_workspace" => {}
+            "switch_to_previous_workspace" => {}
+            "quit" => {}
+            "reload" => {}
+            _ => {
+                self.workspaces[self.current_workspace].execute_command(command, args);
+                self.update_layout();
             }
         }
     }

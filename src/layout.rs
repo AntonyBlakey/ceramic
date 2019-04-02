@@ -161,8 +161,12 @@ impl LayoutRoot {
             .collect()
     }
 
-    pub fn execute_command(&mut self, command: &str) {
-        self.child.execute_command(command);
+    pub fn execute_command(&mut self, command: &str, args: &[&str]) {
+        if command.starts_with(self.name.as_str()) {
+            self.child.execute_command(command.split_at(self.name.len() + 1).1, args);
+        } else {
+            eprintln!("Command not valid for layout {} : {}", self.name, command);
+        }
     }
 }
 
@@ -196,8 +200,8 @@ impl<A: Layout> Commands for IgnoreSomeWindows<A> {
         self.child.get_commands()
     }
 
-    fn execute_command(&mut self, command: &str) {
-        self.child.execute_command(command);
+    fn execute_command(&mut self, command: &str, args: &[&str]) {
+        self.child.execute_command(command, args);
     }
 }
 
@@ -237,8 +241,8 @@ impl<A: Layout> Commands for AvoidStruts<A> {
         self.child.get_commands()
     }
 
-    fn execute_command(&mut self, command: &str) {
-        self.child.execute_command(command);
+    fn execute_command(&mut self, command: &str, args: &[&str]) {
+        self.child.execute_command(command, args);
     }
 }
 
@@ -289,8 +293,8 @@ impl<A: Layout> Commands for AddGaps<A> {
         self.child.get_commands()
     }
 
-    fn execute_command(&mut self, command: &str) {
-        self.child.execute_command(command);
+    fn execute_command(&mut self, command: &str, args: &[&str]) {
+        self.child.execute_command(command, args);
     }
 }
 
@@ -344,8 +348,8 @@ impl<A: Layout> Commands for AddFocusBorder<A> {
         self.child.get_commands()
     }
 
-    fn execute_command(&mut self, command: &str) {
-        self.child.execute_command(command);
+    fn execute_command(&mut self, command: &str, args: &[&str]) {
+        self.child.execute_command(command, args);
     }
 }
 
@@ -475,11 +479,11 @@ impl<A: Layout, B: Layout> Commands for SplitLayout<A, B> {
         result
     }
 
-    fn execute_command(&mut self, command: &str) {
+    fn execute_command(&mut self, command: &str, args: &[&str]) {
         if command.starts_with("0/") {
-            self.children.0.execute_command(command.split_at(2).1)
+            self.children.0.execute_command(command.split_at(2).1, args)
         } else if command.starts_with("1/") {
-            self.children.1.execute_command(command.split_at(2).1)
+            self.children.1.execute_command(command.split_at(2).1, args)
         } else {
             match command {
                 "increase_count" => self.count += 1,

@@ -53,7 +53,7 @@ impl Commands for WindowData {
         vec![String::from("close_focused_window")]
     }
 
-    fn execute_command(&mut self, command: &str) {
+    fn execute_command(&mut self, command: &str, args: &[&str]) {
         match command {
             "close_focused_window" => {
                 xcb::kill_client(&connection(), self.id);
