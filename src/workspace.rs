@@ -48,7 +48,7 @@ impl Workspace {
         }
     }
 
-    pub fn update_layout(&mut self) {
+    pub fn update_layout(&mut self) -> Vec<Action> {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let windows = self.windows.iter().collect::<Vec<&WindowData>>();
@@ -56,7 +56,8 @@ impl Workspace {
             &euclid::rect(0, 0, screen.width_in_pixels(), screen.height_in_pixels()),
             &windows,
         );
-        for a in actions {
+
+        for a in &actions {
             match a {
                 Action::Position {
                     id,
@@ -64,13 +65,15 @@ impl Workspace {
                     border_width,
                     border_color,
                 } => {
-                    if let Some(pos) = self.windows.iter().position(|w| w.id == id) {
-                        self.windows[pos].configure(&rect, border_width, border_color);
+                    if let Some(pos) = self.windows.iter().position(|w| w.id == *id) {
+                        self.windows[pos].configure(rect, *border_width, *border_color);
                     }
                 }
                 _ => (),
             }
         }
+
+        actions
     }
 
     fn set_focused_window(&mut self, w: Option<usize>) {

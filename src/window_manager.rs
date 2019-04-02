@@ -69,22 +69,86 @@ impl WindowManager {
 
         // TODO: process all the pre-existing windows
 
+        self.run_default_event_loop();
+    }
+
+    fn run_default_event_loop(&mut self) {
+        let connection = connection();
         while let Some(e) = connection.wait_for_event() {
-            match e.response_type() {
-                xcb::CONFIGURE_REQUEST => self.configure_request(unsafe { xcb::cast_event(&e) }),
-                xcb::PROPERTY_NOTIFY => self.property_notify(unsafe { xcb::cast_event(&e) }),
-                xcb::MAP_REQUEST => self.map_request(unsafe { xcb::cast_event(&e) }),
-                xcb::MAP_NOTIFY => self.map_notify(unsafe { xcb::cast_event(&e) }),
-                xcb::UNMAP_NOTIFY => self.unmap_notify(unsafe { xcb::cast_event(&e) }),
-                xcb::CLIENT_MESSAGE
-                | xcb::CREATE_NOTIFY
-                | xcb::DESTROY_NOTIFY
-                | xcb::CONFIGURE_NOTIFY
-                | xcb::MAPPING_NOTIFY => (),
-                t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
-            }
-            connection.flush();
+            self.dispatch_wm_event(&e);
         }
+    }
+
+    fn run_selector_event_loop(&mut self) -> Option<xcb::Keysym> {
+        self.grab_keyboard();
+        let connection = connection();
+        let mut key_press_count = 0;
+        let mut first_key_down: Option<xcb::Keysym> = None;
+        while let Some(e) = connection.wait_for_event() {
+            match e.response_type() & 0x7f {
+                xcb::KEY_PRESS => {
+                    let press_event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
+                    if key_press_count == 0 {
+                        let keycode = press_event.detail();
+                        let state = press_event.state();
+                        first_key_down = Some(0);
+                    } else {
+                        first_key_down = None;
+                    }
+                    key_press_count += 1;
+                }
+                xcb::KEY_RELEASE => {
+                    key_press_count -= 1;
+                    if key_press_count == 0 {
+                        break;
+                    }
+                }
+                _ => self.dispatch_wm_event(&e),
+            }
+        }
+        self.ungrab_keyboard();
+        first_key_down
+    }
+
+    fn grab_keyboard(&self) {
+        let connection = connection();
+        let screen = connection.get_setup().roots().nth(0).unwrap();
+        xcb::grab_keyboard(
+            &connection,
+            false,
+            screen.root(),
+            xcb::CURRENT_TIME,
+            xcb::GRAB_MODE_ASYNC as u8,
+            xcb::GRAB_MODE_SYNC as u8,
+        );
+        connection.flush();
+    }
+
+    fn ungrab_keyboard(&self) {
+        let connection = connection();
+        xcb::ungrab_keyboard(&connection, xcb::CURRENT_TIME);
+        connection.flush();
+    }
+
+    fn dispatch_wm_event(&mut self, e: &xcb::GenericEvent) {
+        match e.response_type() & 0x7f {
+            xcb::EXPOSE => self.expose(unsafe { xcb::cast_event(e) }),
+            xcb::CONFIGURE_REQUEST => self.configure_request(unsafe { xcb::cast_event(e) }),
+            xcb::PROPERTY_NOTIFY => self.property_notify(unsafe { xcb::cast_event(e) }),
+            xcb::MAP_REQUEST => self.map_request(unsafe { xcb::cast_event(e) }),
+            xcb::MAP_NOTIFY => self.map_notify(unsafe { xcb::cast_event(e) }),
+            xcb::UNMAP_NOTIFY => self.unmap_notify(unsafe { xcb::cast_event(e) }),
+            xcb::CLIENT_MESSAGE
+            | xcb::CREATE_NOTIFY
+            | xcb::DESTROY_NOTIFY
+            | xcb::CONFIGURE_NOTIFY
+            | xcb::MAPPING_NOTIFY => (),
+            // expose => decorator draw (we never move decorators)
+            // key press => more than one down -> cancel select
+            // key release => if key press count == 1 && key is mapped then select window else no action, release grab
+            t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
+        }
+        connection().flush();
     }
 
     fn set_initial_root_window_properties(&self) {
@@ -158,6 +222,17 @@ impl WindowManager {
         })
     }
 
+    fn expose(&mut self, e: &xcb::ExposeEvent) {
+        eprintln!("Expose {:x}", e.window());
+
+        let connection = connection();
+        let gc_id = connection.generate_id();
+        xcb::create_gc(&connection, gc_id, e.window(), &[]);
+        let rect = xcb::Rectangle::new(e.x() as i16, e.y() as i16, e.width(), e.height());
+        xcb::poly_fill_rectangle(&connection, e.window(), gc_id, &[rect]);
+        xcb::free_gc(&connection, gc_id);
+    }
+
     fn configure_request(&mut self, e: &xcb::ConfigureRequestEvent) {
         // TODO: apply rules
         // If the window isn't managed by us then act on the request for frame at least
@@ -187,7 +262,9 @@ impl WindowManager {
     }
 
     fn update_layout(&mut self) {
-        self.workspaces[self.current_workspace].update_layout();
+        let actions = self.workspaces[self.current_workspace].update_layout();
+        // TODO: add select-a-window decorations
+        // TODO: create decorations as windows
         self.update_commands();
     }
 

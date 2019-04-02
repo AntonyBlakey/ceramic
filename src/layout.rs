@@ -145,10 +145,6 @@ impl LayoutRoot {
         }
     }
 
-    pub fn name(&self) -> String {
-        self.name.clone()
-    }
-
     pub fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
         self.child.layout(rect, &windows)
     }
@@ -252,8 +248,8 @@ impl<A: Layout> Commands for AvoidStruts<A> {
 
 #[derive(Clone)]
 pub struct AddGaps<A: Layout> {
-    pub screen_gap: u16,
-    pub window_gap: u16,
+    screen_gap: u16,
+    window_gap: u16,
     child: A,
 }
 
@@ -304,8 +300,8 @@ impl<A: Layout> Commands for AddGaps<A> {
 
 #[derive(Clone)]
 pub struct AddFocusBorder<A: Layout> {
-    pub width: u16,
-    pub color: (u8, u8, u8),
+    width: u16,
+    color: (u8, u8, u8),
     child: A,
 }
 
