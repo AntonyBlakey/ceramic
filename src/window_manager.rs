@@ -1,5 +1,5 @@
 use super::{artist, connection::*, layout::*, workspace::Workspace};
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
 pub trait Commands {
     fn get_commands(&self) -> Vec<String> {
@@ -12,9 +12,10 @@ pub trait Commands {
 
 #[derive(Default)]
 pub struct WindowManager {
-    // decorators: HashMap<window::Id, Decorator>,
     workspaces: Vec<Workspace>,
     current_workspace: usize,
+    // decorations: HashMap<xcb::Window, Rc<artist::Artist>>,
+    decorations: HashMap<xcb::Window, u8>,
 }
 
 fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
@@ -46,11 +47,6 @@ pub fn run() {
     wm.main_loop();
 }
 
-struct Decorator {
-    id: xcb::Window,
-    artist: Rc<artist::Artist>,
-}
-
 impl WindowManager {
     fn main_loop(&mut self) {
         // TODO: handle all screens
@@ -79,7 +75,7 @@ impl WindowManager {
         }
     }
 
-    fn run_selector_event_loop(&mut self) -> Option<xcb::Keysym> {
+    fn run_window_selector_event_loop(&mut self) -> Option<xcb::Keysym> {
         self.grab_keyboard();
         let connection = connection();
         let mut key_press_count = 0;
@@ -143,9 +139,6 @@ impl WindowManager {
             | xcb::DESTROY_NOTIFY
             | xcb::CONFIGURE_NOTIFY
             | xcb::MAPPING_NOTIFY => (),
-            // expose => decorator draw (we never move decorators)
-            // key press => more than one down -> cancel select
-            // key release => if key press count == 1 && key is mapped then select window else no action, release grab
             t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
         }
         connection().flush();
@@ -225,12 +218,12 @@ impl WindowManager {
     fn expose(&mut self, e: &xcb::ExposeEvent) {
         eprintln!("Expose {:x}", e.window());
 
-        let connection = connection();
-        let gc_id = connection.generate_id();
-        xcb::create_gc(&connection, gc_id, e.window(), &[]);
-        let rect = xcb::Rectangle::new(e.x() as i16, e.y() as i16, e.width(), e.height());
-        xcb::poly_fill_rectangle(&connection, e.window(), gc_id, &[rect]);
-        xcb::free_gc(&connection, gc_id);
+        // let connection = connection();
+        // let gc_id = connection.generate_id();
+        // xcb::create_gc(&connection, gc_id, e.window(), &[]);
+        // let rect = xcb::Rectangle::new(e.x() as i16, e.y() as i16, e.width(), e.height());
+        // xcb::poly_fill_rectangle(&connection, e.window(), gc_id, &[rect]);
+        // xcb::free_gc(&connection, gc_id);
     }
 
     fn configure_request(&mut self, e: &xcb::ConfigureRequestEvent) {
@@ -252,19 +245,73 @@ impl WindowManager {
     }
 
     fn map_notify(&mut self, e: &xcb::MapNotifyEvent) {
-        self.workspaces[self.current_workspace].add_window(e.window());
-        self.update_layout();
+        if !self.decorations.contains_key(&e.window()) {
+            self.workspaces[self.current_workspace].add_window(e.window());
+            self.update_layout();
+        }
     }
 
     fn unmap_notify(&mut self, e: &xcb::UnmapNotifyEvent) {
-        self.workspaces[self.current_workspace].remove_window(e.window());
-        self.update_layout();
+        if !self.decorations.contains_key(&e.window()) {
+            self.workspaces[self.current_workspace].remove_window(e.window());
+            self.update_layout();
+        } else {
+            self.decorations.remove(&e.window());
+        }
     }
 
     fn update_layout(&mut self) {
+        let connection = connection();
+
+        for window in self.decorations.keys().clone() {
+            xcb::destroy_window(&connection, *window);
+        }
+
+        let screen = connection.get_setup().roots().nth(0).unwrap();
+        let root = screen.root();
+        let root_visual = screen.root_visual();
+
+        let values = [
+            (xcb::CW_BACK_PIXEL, screen.white_pixel()),
+            (xcb::CW_EVENT_MASK, xcb::EVENT_MASK_EXPOSURE),
+            (xcb::CW_OVERRIDE_REDIRECT, 1),
+        ];
+
         let actions = self.workspaces[self.current_workspace].update_layout();
+        for action in actions {
+            match action {
+                Action::Position {
+                    id: _,
+                    rect,
+                    border_width: _,
+                    border_color: _,
+                } => {
+                    let new_id = connection.generate_id();
+                    xcb::create_window(
+                        &connection,
+                        xcb::COPY_FROM_PARENT as u8,
+                        new_id,
+                        root,
+                        rect.origin.x as i16,
+                        rect.origin.y as i16,
+                        32,
+                        32,
+                        // rect.size.width,
+                        // rect.size.height,
+                        0,
+                        xcb::WINDOW_CLASS_INPUT_OUTPUT as u16,
+                        root_visual,
+                        &values,
+                    );
+                    xcb::map_window(&connection, new_id);
+                    self.decorations.insert(new_id, 0);
+                }
+                _ => {}
+            }
+        }
+
         // TODO: add select-a-window decorations
-        // TODO: create decorations as windows
+        // TODO: Create and map window for each Action::Draw
         self.update_commands();
     }
 

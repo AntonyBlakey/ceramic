@@ -177,7 +177,7 @@ pub fn get_cardinal_property(window: xcb::Window, name_atom: u32) -> Option<u32>
 
 pub fn get_cardinals_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
     // TODO: handle case where property is bigger than we allowed for
-    xcb::get_property(
+    match xcb::get_property(
         &connection(),
         false,
         window,
@@ -186,10 +186,10 @@ pub fn get_cardinals_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
         0,
         32,
     )
-    .get_reply()
-    .unwrap()
-    .value()
-    .to_vec()
+    .get_reply() {
+        Ok(value) => value.value().to_vec(),
+        _ => Default::default(),
+    }
 }
 
 pub fn get_string_property(window: xcb::Window, name_atom: u32) -> String {
@@ -269,7 +269,7 @@ pub fn get_atom_property(window: xcb::Window, name_atom: u32) -> Option<u32> {
 
 pub fn get_atoms_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
     // TODO: handle case where property is bigger than we allowed for
-    xcb::get_property(
+    match xcb::get_property(
         &connection(),
         false,
         window,
@@ -278,8 +278,8 @@ pub fn get_atoms_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
         0,
         32,
     )
-    .get_reply()
-    .unwrap()
-    .value()
-    .to_vec()
+    .get_reply() {
+        Ok(value) => value.value().to_vec(),
+        _ => Default::default(),
+    }
 }
