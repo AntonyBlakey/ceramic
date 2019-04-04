@@ -287,10 +287,12 @@ pub fn get_atoms_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
     }
 }
 
-pub fn get_cairo_surface(window: xcb::Window) -> cairo::Surface {
+pub fn get_cairo_surface(window: xcb::Window) -> Result<cairo::Surface, xcb::GenericError> {
     let connection = connection();
+
+    let geometry = xcb::get_geometry(&connection, window).get_reply()?;
     let cairo_connection = unsafe {
-        cairo::XCBConnection::from_raw_borrow(
+        cairo::XCBConnection::from_raw_none(
             connection.get_raw_conn() as *mut cairo_sys::xcb_connection_t
         )
     };
@@ -307,19 +309,17 @@ pub fn get_cairo_surface(window: xcb::Window) -> cairo::Surface {
         .find(|v| v.visual_id() == screen.root_visual())
         .unwrap();
     let cairo_visualtype = unsafe {
-        cairo::XCBVisualType::from_raw_borrow(
+        cairo::XCBVisualType::from_raw_none(
             (&mut visual.base as *mut xcb::ffi::xproto::xcb_visualtype_t)
                 as *mut cairo_sys::xcb_visualtype_t,
         )
     };
 
-    let geometry = xcb::get_geometry(&connection, window).get_reply().unwrap();
-
-    cairo::Surface::create(
+    Ok(cairo::Surface::create(
         &cairo_connection,
         &cairo_drawable,
         &cairo_visualtype,
         geometry.width() as i32,
         geometry.height() as i32,
-    )
+    ))
 }

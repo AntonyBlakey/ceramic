@@ -17,18 +17,22 @@ pub struct WindowManager {
     decorations: HashMap<xcb::Window, Rc<artist::Artist>>,
 }
 
-pub struct WindowSelectorArtist {}
+pub struct WindowSelectorArtist {
+    selector_char: char,
+}
 
 impl artist::Artist for WindowSelectorArtist {
     fn draw(&self, context: &cairo::Context) {
-        context.set_source_rgb(1.0, 0.0, 0.0);
-        context.new_path();
-        context.move_to(8.0, 8.0);
-        context.line_to(8.0, 24.0);
-        context.line_to(24.0, 24.0);
-        context.line_to(24.0, 8.0);
-        context.close_path();
-        context.fill();
+        context.set_source_rgb(0.0, 0.0, 0.0);
+        let label = format!("{}", self.selector_char);
+        context.move_to(8.0, 24.0);
+        context.select_font_face(
+            "Noto Sans",
+            cairo::FontSlant::Normal,
+            cairo::FontWeight::Bold,
+        );
+        context.set_font_size(24.0);
+        context.show_text(&label.as_str());
     }
 }
 
@@ -230,11 +234,14 @@ impl WindowManager {
     }
 
     fn expose(&mut self, e: &xcb::ExposeEvent) {
-        let window = e.window();
-        if let Some(artist) = self.decorations.get(&window) {
-            let surface = get_cairo_surface(e.window());
-            let context = cairo::Context::new(&surface);
-            artist.draw(&context);
+        if e.count() == 0 {
+            let window = e.window();
+            if let Some(artist) = self.decorations.get(&window) {
+                if let Ok(surface) = get_cairo_surface(window) {
+                    let context = cairo::Context::new(&surface);
+                    artist.draw(&context);
+                }
+            }
         }
     }
 
@@ -288,6 +295,7 @@ impl WindowManager {
         let mut actions = self.workspaces[self.current_workspace].update_layout();
 
         if true {
+            let mut selector_chars = "asdfghjklqwertyuiopzxcvbnm1234567890".chars();
             let mut draws =
                 Vec::with_capacity(self.workspaces[self.current_workspace].windows.len());
             for action in &actions {
@@ -297,11 +305,13 @@ impl WindowManager {
                         rect,
                         border_width: _,
                         border_color: _,
-                    } => draws.push(Action::Draw {
-                        rect: euclid::rect(rect.origin.x, rect.origin.y, 32, 32),
-                        // TODO: add data to the artist
-                        artist: Rc::new(WindowSelectorArtist {}),
-                    }),
+                    } => match selector_chars.next() {
+                        Some(c) => draws.push(Action::Draw {
+                            rect: euclid::rect(rect.origin.x, rect.origin.y, 32, 32),
+                            artist: Rc::new(WindowSelectorArtist { selector_char: c }),
+                        }),
+                        None => (),
+                    },
                     _ => (),
                 }
             }
