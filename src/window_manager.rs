@@ -18,21 +18,48 @@ pub struct WindowManager {
 }
 
 pub struct WindowSelectorArtist {
-    selector_char: char,
+    x: u16,
+    y: u16,
+    label: String,
+}
+
+impl WindowSelectorArtist {
+    fn configure_font(&self, context: &cairo::Context) {
+        context.select_font_face(
+            "Operator Mono SSm Medium",
+            cairo::FontSlant::Normal,
+            cairo::FontWeight::Normal,
+        );
+        context.set_font_size(24.0);
+    }
 }
 
 impl artist::Artist for WindowSelectorArtist {
-    fn draw(&self, context: &cairo::Context) {
-        context.set_source_rgb(0.0, 0.0, 0.0);
-        let label = format!("{}", self.selector_char);
-        context.move_to(8.0, 24.0);
-        context.select_font_face(
-            "Noto Sans",
-            cairo::FontSlant::Normal,
-            cairo::FontWeight::Bold,
-        );
-        context.set_font_size(24.0);
-        context.show_text(&label.as_str());
+    fn calculate_bounds(&self, window: xcb::Window) -> Option<LayoutRect> {
+        if let Ok(surface) = get_cairo_surface(window) {
+            let context = cairo::Context::new(&surface);
+            self.configure_font(&context);
+            let text_extent = context.text_extents(&self.label);
+            return Some(euclid::rect(
+                self.x,
+                self.y,
+                12 + text_extent.width.ceil() as u16,
+                6 + text_extent.height.ceil() as u16,
+            ));
+        }
+
+        None
+    }
+
+    fn draw(&self, window: xcb::Window) {
+        if let Ok(surface) = get_cairo_surface(window) {
+            let context = cairo::Context::new(&surface);
+            self.configure_font(&context);
+            context.set_source_rgb(0.0, 0.0, 0.0);
+            let text_extent = context.text_extents(&self.label);
+            context.move_to(6.0 - text_extent.x_bearing, 3.0 + text_extent.height);
+            context.show_text(&self.label);
+        }
     }
 }
 
@@ -237,10 +264,7 @@ impl WindowManager {
         if e.count() == 0 {
             let window = e.window();
             if let Some(artist) = self.decorations.get(&window) {
-                if let Ok(surface) = get_cairo_surface(window) {
-                    let context = cairo::Context::new(&surface);
-                    artist.draw(&context);
-                }
+                artist.draw(window);
             }
         }
     }
@@ -295,6 +319,7 @@ impl WindowManager {
         let mut actions = self.workspaces[self.current_workspace].update_layout();
 
         if true {
+            // Handle ATOM_CERAMIC_STACK_LEADER
             let mut selector_chars = "asdfghjklqwertyuiopzxcvbnm1234567890".chars();
             let mut draws =
                 Vec::with_capacity(self.workspaces[self.current_workspace].windows.len());
@@ -307,8 +332,11 @@ impl WindowManager {
                         border_color: _,
                     } => match selector_chars.next() {
                         Some(c) => draws.push(Action::Draw {
-                            rect: euclid::rect(rect.origin.x, rect.origin.y, 32, 32),
-                            artist: Rc::new(WindowSelectorArtist { selector_char: c }),
+                            artist: Rc::new(WindowSelectorArtist {
+                                x: rect.origin.x,
+                                y: rect.origin.y,
+                                label: format!("{}", c),
+                            }),
                         }),
                         None => (),
                     },
@@ -325,24 +353,41 @@ impl WindowManager {
 
         for action in &actions {
             match action {
-                Action::Draw { rect, artist } => {
+                Action::Draw { artist } => {
                     let new_id = connection.generate_id();
                     xcb::create_window(
                         &connection,
                         xcb::COPY_FROM_PARENT as u8,
                         new_id,
                         root,
-                        rect.origin.x as i16,
-                        rect.origin.y as i16,
-                        rect.size.width,
-                        rect.size.height,
+                        -1,
+                        -1,
+                        1,
+                        1,
                         0,
                         xcb::WINDOW_CLASS_INPUT_OUTPUT as u16,
                         root_visual,
                         &values,
                     );
-                    xcb::map_window(&connection, new_id);
-                    self.decorations.insert(new_id, artist.clone());
+                    match artist.calculate_bounds(new_id) {
+                        Some(bounds) => {
+                            xcb::configure_window(
+                                &connection,
+                                new_id,
+                                &[
+                                    (xcb::CONFIG_WINDOW_X as u16, bounds.origin.x as u32),
+                                    (xcb::CONFIG_WINDOW_Y as u16, bounds.origin.y as u32),
+                                    (xcb::CONFIG_WINDOW_WIDTH as u16, bounds.size.width as u32),
+                                    (xcb::CONFIG_WINDOW_HEIGHT as u16, bounds.size.height as u32),
+                                ],
+                            );
+                            xcb::map_window(&connection, new_id);
+                            self.decorations.insert(new_id, artist.clone());
+                        }
+                        None => {
+                            xcb::destroy_window(&connection, new_id);
+                        }
+                    }
                 }
                 _ => {}
             }

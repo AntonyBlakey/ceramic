@@ -48,7 +48,6 @@ pub trait Layout: Commands {
 
 pub enum Action {
     Draw {
-        rect: LayoutRect,
         artist: Rc<artist::Artist>,
     },
     Position {
