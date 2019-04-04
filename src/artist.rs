@@ -1,1 +1,3 @@
-pub trait Artist {}
+pub trait Artist {
+    fn draw(&self, context: &cairo::Context);
+}

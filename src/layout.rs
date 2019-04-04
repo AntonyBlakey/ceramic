@@ -48,8 +48,8 @@ pub trait Layout: Commands {
 
 pub enum Action {
     Draw {
-        artist: Rc<artist::Artist>,
         rect: LayoutRect,
+        artist: Rc<artist::Artist>,
     },
     Position {
         id: xcb::Window,
@@ -159,7 +159,8 @@ impl LayoutRoot {
 
     pub fn execute_command(&mut self, command: &str, args: &[&str]) {
         if command.starts_with(self.name.as_str()) {
-            self.child.execute_command(command.split_at(self.name.len() + 1).1, args);
+            self.child
+                .execute_command(command.split_at(self.name.len() + 1).1, args);
         } else {
             eprintln!("Command not valid for layout {} : {}", self.name, command);
         }

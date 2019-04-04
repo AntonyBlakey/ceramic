@@ -14,8 +14,22 @@ pub trait Commands {
 pub struct WindowManager {
     workspaces: Vec<Workspace>,
     current_workspace: usize,
-    // decorations: HashMap<xcb::Window, Rc<artist::Artist>>,
-    decorations: HashMap<xcb::Window, u8>,
+    decorations: HashMap<xcb::Window, Rc<artist::Artist>>,
+}
+
+pub struct WindowSelectorArtist {}
+
+impl artist::Artist for WindowSelectorArtist {
+    fn draw(&self, context: &cairo::Context) {
+        context.set_source_rgb(1.0, 0.0, 0.0);
+        context.new_path();
+        context.move_to(8.0, 8.0);
+        context.line_to(8.0, 24.0);
+        context.line_to(24.0, 24.0);
+        context.line_to(24.0, 8.0);
+        context.close_path();
+        context.fill();
+    }
 }
 
 fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
@@ -216,14 +230,12 @@ impl WindowManager {
     }
 
     fn expose(&mut self, e: &xcb::ExposeEvent) {
-        eprintln!("Expose {:x}", e.window());
-
-        // let connection = connection();
-        // let gc_id = connection.generate_id();
-        // xcb::create_gc(&connection, gc_id, e.window(), &[]);
-        // let rect = xcb::Rectangle::new(e.x() as i16, e.y() as i16, e.width(), e.height());
-        // xcb::poly_fill_rectangle(&connection, e.window(), gc_id, &[rect]);
-        // xcb::free_gc(&connection, gc_id);
+        let window = e.window();
+        if let Some(artist) = self.decorations.get(&window) {
+            let surface = get_cairo_surface(e.window());
+            let context = cairo::Context::new(&surface);
+            artist.draw(&context);
+        }
     }
 
     fn configure_request(&mut self, e: &xcb::ConfigureRequestEvent) {
@@ -263,10 +275,6 @@ impl WindowManager {
     fn update_layout(&mut self) {
         let connection = connection();
 
-        for window in self.decorations.keys().clone() {
-            xcb::destroy_window(&connection, *window);
-        }
-
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let root = screen.root();
         let root_visual = screen.root_visual();
@@ -277,15 +285,37 @@ impl WindowManager {
             (xcb::CW_OVERRIDE_REDIRECT, 1),
         ];
 
-        let actions = self.workspaces[self.current_workspace].update_layout();
-        for action in actions {
+        let mut actions = self.workspaces[self.current_workspace].update_layout();
+
+        if true {
+            let mut draws =
+                Vec::with_capacity(self.workspaces[self.current_workspace].windows.len());
+            for action in &actions {
+                match action {
+                    Action::Position {
+                        id: _,
+                        rect,
+                        border_width: _,
+                        border_color: _,
+                    } => draws.push(Action::Draw {
+                        rect: euclid::rect(rect.origin.x, rect.origin.y, 32, 32),
+                        // TODO: add data to the artist
+                        artist: Rc::new(WindowSelectorArtist {}),
+                    }),
+                    _ => (),
+                }
+            }
+            actions.extend(draws);
+        }
+
+        // TODO: reuse decoration windows
+        for window in self.decorations.keys().clone() {
+            xcb::destroy_window(&connection, *window);
+        }
+
+        for action in &actions {
             match action {
-                Action::Position {
-                    id: _,
-                    rect,
-                    border_width: _,
-                    border_color: _,
-                } => {
+                Action::Draw { rect, artist } => {
                     let new_id = connection.generate_id();
                     xcb::create_window(
                         &connection,
@@ -294,24 +324,20 @@ impl WindowManager {
                         root,
                         rect.origin.x as i16,
                         rect.origin.y as i16,
-                        32,
-                        32,
-                        // rect.size.width,
-                        // rect.size.height,
+                        rect.size.width,
+                        rect.size.height,
                         0,
                         xcb::WINDOW_CLASS_INPUT_OUTPUT as u16,
                         root_visual,
                         &values,
                     );
                     xcb::map_window(&connection, new_id);
-                    self.decorations.insert(new_id, 0);
+                    self.decorations.insert(new_id, artist.clone());
                 }
                 _ => {}
             }
         }
 
-        // TODO: add select-a-window decorations
-        // TODO: Create and map window for each Action::Draw
         self.update_commands();
     }
 

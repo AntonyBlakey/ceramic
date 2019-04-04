@@ -100,20 +100,20 @@ impl Commands for Workspace {
             if let Some(index) = self.focused_window {
                 // TODO: this should be the count of floating vs. non-floating *focusable* windows
                 if self.windows.len() > 1 {
-                    commands.push(String::from("focus_on_window_with_id:"));
+                    commands.push(String::from("select_a_window_and_focus_on_it"));
                     commands.push(String::from("move_focused_window_to_head"));
                     commands.push(String::from("move_focused_window_forward"));
                     commands.push(String::from("move_focused_window_backward"));
                     commands.push(String::from("move_focus_to_next_window"));
                     commands.push(String::from("move_focus_to_previous_window"));
                     commands.push(String::from(
-                        "move_focused_window_to_position_of_window_with_id:",
+                        "select_a_window_and_move_focused_window_to_that_position",
                     ));
-                    commands.push(String::from("swap_focused_window_with_window_with_id:"));
+                    commands.push(String::from("select_a_window_and_swap_with_focused_window"));
                 }
                 commands.extend(self.windows[index].get_commands().into_iter());
             } else {
-                commands.push(String::from("focus_on_window_with_id:"));
+                commands.push(String::from("select_a_window_and_focus_on_it"));
             }
         }
         commands
@@ -127,7 +127,7 @@ impl Commands for Workspace {
                 "switch_to_next_layout" => {}
                 "switch_to_previous_layout" => {}
                 "switch_to_layout_named:" => {}
-                "focus_on_window_with_id:" => {}
+                "select_a_window_and_focus_on_it" => {}
                 _ => {
                     if let Some(index) = self.focused_window {
                         match command {
@@ -164,8 +164,8 @@ impl Commands for Workspace {
                                     (index + self.windows.len() - 1) % self.windows.len();
                                 self.set_focused_window(Some(new_index));
                             }
-                            "move_focused_window_to_position_of_window_with_id:" => {}
-                            "swap_focused_window_with_window_with_id:" => {}
+                            "select_a_window_and_move_focused_window_to_that_position" => {}
+                            "select_a_window_and_swap_with_focused_window" => {}
                             _ => self.windows[index].execute_command(command, args),
                         }
                     }

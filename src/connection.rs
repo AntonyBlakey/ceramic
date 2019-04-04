@@ -1,3 +1,4 @@
+use cairo::XCBSurface;
 use lazy_static::lazy_static;
 use std::rc::Rc;
 
@@ -186,7 +187,8 @@ pub fn get_cardinals_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
         0,
         32,
     )
-    .get_reply() {
+    .get_reply()
+    {
         Ok(value) => value.value().to_vec(),
         _ => Default::default(),
     }
@@ -278,8 +280,46 @@ pub fn get_atoms_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
         0,
         32,
     )
-    .get_reply() {
+    .get_reply()
+    {
         Ok(value) => value.value().to_vec(),
         _ => Default::default(),
     }
+}
+
+pub fn get_cairo_surface(window: xcb::Window) -> cairo::Surface {
+    let connection = connection();
+    let cairo_connection = unsafe {
+        cairo::XCBConnection::from_raw_borrow(
+            connection.get_raw_conn() as *mut cairo_sys::xcb_connection_t
+        )
+    };
+
+    let cairo_drawable = cairo::XCBDrawable(window);
+
+    let screen = connection.get_setup().roots().nth(0).unwrap();
+    let depth = screen
+        .allowed_depths()
+        .find(|d| d.depth() == screen.root_depth())
+        .unwrap();
+    let mut visual = depth
+        .visuals()
+        .find(|v| v.visual_id() == screen.root_visual())
+        .unwrap();
+    let cairo_visualtype = unsafe {
+        cairo::XCBVisualType::from_raw_borrow(
+            (&mut visual.base as *mut xcb::ffi::xproto::xcb_visualtype_t)
+                as *mut cairo_sys::xcb_visualtype_t,
+        )
+    };
+
+    let geometry = xcb::get_geometry(&connection, window).get_reply().unwrap();
+
+    cairo::Surface::create(
+        &cairo_connection,
+        &cairo_drawable,
+        &cairo_visualtype,
+        geometry.width() as i32,
+        geometry.height() as i32,
+    )
 }
