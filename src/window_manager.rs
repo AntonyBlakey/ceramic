@@ -20,17 +20,27 @@ pub struct WindowManager {
 pub struct WindowSelectorArtist {
     x: u16,
     y: u16,
-    label: String,
+    labels: Vec<(String, String)>,
 }
 
 impl WindowSelectorArtist {
-    fn configure_font(&self, context: &cairo::Context) {
+    fn configure_label_font(&self, context: &cairo::Context) {
+        context.set_source_rgb(1.0, 0.0, 0.0);
         context.select_font_face(
             "Operator Mono SSm Medium",
             cairo::FontSlant::Normal,
             cairo::FontWeight::Normal,
         );
-        context.set_font_size(24.0);
+        context.set_font_size(18.0);
+    }
+    fn configure_name_font(&self, context: &cairo::Context) {
+        context.set_source_rgb(0.0, 0.0, 0.0);
+        context.select_font_face(
+            "Operator Mono SSm Book",
+            cairo::FontSlant::Normal,
+            cairo::FontWeight::Normal,
+        );
+        context.set_font_size(12.0);
     }
 }
 
@@ -38,14 +48,21 @@ impl artist::Artist for WindowSelectorArtist {
     fn calculate_bounds(&self, window: xcb::Window) -> Option<LayoutRect> {
         if let Ok(surface) = get_cairo_surface(window) {
             let context = cairo::Context::new(&surface);
-            self.configure_font(&context);
-            let text_extent = context.text_extents(&self.label);
-            return Some(euclid::rect(
-                self.x,
-                self.y,
-                12 + text_extent.width.ceil() as u16,
-                6 + text_extent.height.ceil() as u16,
-            ));
+            self.configure_label_font(&context);
+            let font_extents = context.font_extents();
+            let line_height = font_extents.height.ceil() as u16;
+            let mut label_width = 0;
+            for label in &self.labels {
+                let text_extents = context.text_extents(&label.0);
+                label_width = label_width.max(text_extents.width.ceil() as u16);
+            }
+            self.configure_name_font(&context);
+            let mut name_width = 0;
+            for label in &self.labels {
+                let text_extents = context.text_extents(&label.1);
+                name_width = name_width.max(text_extents.width.ceil() as u16);
+            }
+            return Some(euclid::rect(self.x, self.y, 12 + label_width + 6 + name_width, 6 + (self.labels.len() as u16 * line_height)));
         }
 
         None
@@ -54,11 +71,33 @@ impl artist::Artist for WindowSelectorArtist {
     fn draw(&self, window: xcb::Window) {
         if let Ok(surface) = get_cairo_surface(window) {
             let context = cairo::Context::new(&surface);
-            self.configure_font(&context);
-            context.set_source_rgb(0.0, 0.0, 0.0);
-            let text_extent = context.text_extents(&self.label);
-            context.move_to(6.0 - text_extent.x_bearing, 3.0 + text_extent.height);
-            context.show_text(&self.label);
+            self.configure_label_font(&context);
+            let font_extents = context.font_extents();
+            let line_height = font_extents.height.ceil() as u16;
+            let ascent = font_extents.ascent;
+            let mut y = 0;
+            let mut label_width = 0;
+            for label in &self.labels {
+                let text_extents = context.text_extents(&label.0);
+                context.move_to(
+                    6.0 - text_extents.x_bearing,
+                    3.0 + (y as f64) + ascent,
+                );
+                context.show_text(&label.0);
+                y += line_height;
+                label_width = label_width.max(text_extents.width.ceil() as u16);
+            }
+            self.configure_name_font(&context);
+            let mut y = 0;
+            for label in &self.labels {
+                let text_extents = context.text_extents(&label.1);
+                context.move_to(
+                    6.0 + (label_width as f64) + 6.0 - text_extents.x_bearing,
+                    3.0 + (y as f64) + ascent,
+                );
+                context.show_text(&label.1);
+                y += line_height;
+            }
         }
     }
 }
@@ -74,13 +113,18 @@ fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot
 fn layouts() -> Vec<LayoutRoot> {
     vec![
         standard_layout_root(
+            "monad_tall_right_stack",
+            monad_stack(Direction::Decreasing, Axis::X, 0.75, 1),
+            // monad_stack(Direction::Decreasing, Axis::X, 0.75, 1),
+        ),
+        standard_layout_root(
             "monad_tall_right",
             monad(Direction::Decreasing, Axis::X, 0.75, 1),
         ),
-        standard_layout_root(
-            "monad_wide_top",
-            monad(Direction::Increasing, Axis::Y, 0.75, 1),
-        ),
+        // standard_layout_root(
+        //     "monad_wide_top",
+        //     monad(Direction::Increasing, Axis::Y, 0.75, 1),
+        // ),
     ]
 }
 
@@ -319,31 +363,47 @@ impl WindowManager {
         let mut actions = self.workspaces[self.current_workspace].update_layout();
 
         if true {
-            // Handle ATOM_CERAMIC_STACK_LEADER
             let mut selector_chars = "asdfghjklqwertyuiopzxcvbnm1234567890".chars();
-            let mut draws =
+            let mut selector_artists: Vec<WindowSelectorArtist> =
                 Vec::with_capacity(self.workspaces[self.current_workspace].windows.len());
             for action in &actions {
                 match action {
                     Action::Position {
-                        id: _,
+                        id,
                         rect,
                         border_width: _,
                         border_color: _,
                     } => match selector_chars.next() {
-                        Some(c) => draws.push(Action::Draw {
-                            artist: Rc::new(WindowSelectorArtist {
-                                x: rect.origin.x,
-                                y: rect.origin.y,
-                                label: format!("{}", c),
-                            }),
-                        }),
-                        None => (),
+                        Some(c) => {
+                            let label = format!("{}", c);
+                            let name = get_string_property(*id, *ATOM__NET_WM_NAME);
+                            match selector_artists
+                                .iter_mut()
+                                .find(|d| d.x == rect.origin.x && d.y == rect.origin.y)
+                            {
+                                Some(artist) => {
+                                    artist.labels.push((label, name));
+                                }
+                                None => {
+                                    selector_artists.push(WindowSelectorArtist {
+                                        x: rect.origin.x,
+                                        y: rect.origin.y,
+                                        labels: vec![(label, name)],
+                                    });
+                                }
+                            }
+                        }
+                        None => {}
                     },
                     _ => (),
                 }
             }
-            actions.extend(draws);
+
+            for artist in selector_artists {
+                actions.push(Action::Draw {
+                    artist: Rc::new(artist),
+                });
+            }
         }
 
         // TODO: reuse decoration windows

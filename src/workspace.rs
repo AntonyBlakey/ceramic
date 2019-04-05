@@ -50,10 +50,6 @@ impl Workspace {
 
     pub fn update_layout(&mut self) -> Vec<Action> {
         let connection = connection();
-        for window in &self.windows {
-            xcb::delete_property(&connection, window.id, *ATOM_CERAMIC_STACK_LEADER);
-        }
-
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let windows = self.windows.iter().collect::<Vec<&WindowData>>();
         let actions = self.layouts[self.current_layout].layout(

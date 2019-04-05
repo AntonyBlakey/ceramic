@@ -90,6 +90,10 @@ pub fn grid() -> GridLayout {
     GridLayout {}
 }
 
+pub fn stack() -> StackLayout {
+    StackLayout {}
+}
+
 pub fn linear(direction: Direction, axis: Axis) -> LinearLayout {
     LinearLayout { direction, axis }
 }
@@ -124,6 +128,22 @@ pub fn monad(
         count,
         linear(direction, axis),
         linear(Direction::Increasing, axis.orthogonal()),
+    )
+}
+
+pub fn monad_stack(
+    direction: Direction,
+    axis: Axis,
+    ratio: f64,
+    count: usize,
+) -> SplitLayout<LinearLayout, StackLayout> {
+    split(
+        direction,
+        axis,
+        ratio,
+        count,
+        linear(direction, axis),
+        stack(),
     )
 }
 
@@ -348,6 +368,92 @@ impl<A: Layout> Commands for AddFocusBorder<A> {
         self.child.execute_command(command, args);
     }
 }
+
+//
+//------------------------------------------------------------------
+//
+
+struct StackIndicatorArtist {
+    axis: Axis,
+    window: xcb::Window,
+}
+
+impl artist::Artist for StackIndicatorArtist {
+    fn calculate_bounds(&self, window: xcb::Window) -> Option<LayoutRect> {
+        match xcb::get_geometry(&connection(), self.window).get_reply() {
+            Ok(geometry) => Some(match self.axis {
+                Axis::X => euclid::rect(
+                    geometry.x() as u16 - 8,
+                    geometry.y() as u16,
+                    4,
+                    geometry.height(),
+                ),
+                Axis::Y => euclid::rect(
+                    geometry.x() as u16,
+                    geometry.y() as u16 - 8,
+                    geometry.width(),
+                    4,
+                ),
+            }),
+            _ => None,
+        }
+    }
+
+    fn draw(&self, window: xcb::Window) {
+        if let Ok(geometry) = xcb::get_geometry(&connection(), window).get_reply() {
+            if let Ok(surface) = get_cairo_surface(window) {
+                let context = cairo::Context::new(&surface);
+                context.set_source_rgb(0.125, 0.375, 0.5);
+                context.move_to(0.0, 0.0);
+                context.line_to(geometry.width() as f64, 0.0);
+                context.line_to(geometry.width() as f64, geometry.height() as f64);
+                context.line_to(0.0, geometry.height() as f64);
+                context.close_path();
+                context.fill();
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct StackLayout {}
+
+impl Layout for StackLayout {
+    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
+        if windows.is_empty() {
+            return Default::default();
+        }
+
+        let mut actions = Vec::with_capacity(windows.len() + 1);
+        let mut r = *rect;
+
+        actions.push(Action::Draw {
+            artist: Rc::new(StackIndicatorArtist {
+                window: windows[0].id,
+                axis: if rect.size.width > rect.size.height {
+                    r.origin.x += 8;
+                    r.size.width -= 8;
+                    Axis::X
+                } else {
+                    r.origin.y += 8;
+                    r.size.height -= 8;
+                    Axis::Y
+                },
+            }),
+        });
+
+        actions.extend(windows.iter().map(|window| Action::Position {
+            id: window.id,
+            rect: r,
+            border_width: 0,
+            border_color: 0,
+        }));
+
+        actions
+    }
+}
+
+impl Commands for StackLayout {}
 
 //
 //------------------------------------------------------------------

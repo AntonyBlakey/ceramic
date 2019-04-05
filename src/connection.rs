@@ -86,7 +86,6 @@ lazy_static! {
     pub static ref ATOM__NET_WM_ACTION_ABOVE: u32 = get_atom("_NET_WM_ACTION_ABOVE");
     pub static ref ATOM__NET_WM_ACTION_BELOW: u32 = get_atom("_NET_WM_ACTION_BELOW");
     //
-    pub static ref ATOM_CERAMIC_STACK_LEADER: u32 = get_atom("CERAMIC_STACK_LEADER");
     pub static ref ATOM_CERAMIC_COMMAND: u32 = get_atom("CERAMIC_COMMAND");
     pub static ref ATOM_CERAMIC_AVAILABLE_COMMANDS: u32 = get_atom("CERAMIC_AVAILABLE_COMMANDS");
 }
