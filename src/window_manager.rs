@@ -18,51 +18,82 @@ pub struct WindowManager {
 }
 
 pub struct WindowSelectorArtist {
-    x: u16,
-    y: u16,
-    labels: Vec<(String, String)>,
+    labels: Vec<String>,
+    windows: Vec<xcb::Window>,
 }
 
 impl WindowSelectorArtist {
+    const MARGIN: (u16, u16) = (6, 2);
+    const LABEL_PADDING: (u16, u16) = (4, 2);
+    const LABEL_TO_NAME_GAP: u16 = 6;
+    const LINE_SPACING: u16 = 2;
+
     fn configure_label_font(&self, context: &cairo::Context) {
-        context.set_source_rgb(1.0, 0.0, 0.0);
         context.select_font_face(
-            "Operator Mono SSm Medium",
+            "Ubuntu Mono",
             cairo::FontSlant::Normal,
-            cairo::FontWeight::Normal,
+            cairo::FontWeight::Bold,
         );
-        context.set_font_size(18.0);
+        context.set_font_size(14.0);
     }
+
     fn configure_name_font(&self, context: &cairo::Context) {
-        context.set_source_rgb(0.0, 0.0, 0.0);
         context.select_font_face(
-            "Operator Mono SSm Book",
+            "Ubuntu Mono",
             cairo::FontSlant::Normal,
             cairo::FontWeight::Normal,
         );
-        context.set_font_size(12.0);
+        context.set_font_size(14.0);
     }
 }
 
 impl artist::Artist for WindowSelectorArtist {
     fn calculate_bounds(&self, window: xcb::Window) -> Option<LayoutRect> {
-        if let Ok(surface) = get_cairo_surface(window) {
-            let context = cairo::Context::new(&surface);
-            self.configure_label_font(&context);
-            let font_extents = context.font_extents();
-            let line_height = font_extents.height.ceil() as u16;
-            let mut label_width = 0;
-            for label in &self.labels {
-                let text_extents = context.text_extents(&label.0);
-                label_width = label_width.max(text_extents.width.ceil() as u16);
+        match xcb::get_geometry(&connection(), self.windows[0]).get_reply() {
+            Ok(geometry) => {
+                if let Ok(surface) = get_cairo_surface(window) {
+                    let context = cairo::Context::new(&surface);
+                    
+                    self.configure_label_font(&context);
+                    let font_extents = context.font_extents();
+                    let line_height = font_extents.height.ceil() as u16;
+                    
+                    let mut label_width = 0;
+                    for label in &self.labels {
+                        let text_extents = context.text_extents(label);
+                        label_width = label_width.max(text_extents.width.ceil() as u16);
+                    }
+
+                    self.configure_name_font(&context);
+                    let mut name_width = 0;
+                    for window in &self.windows {
+                        let name = get_string_property(*window, *ATOM__NET_WM_NAME);
+                        let text_extents = context.text_extents(&name);
+                        name_width = name_width.max(text_extents.width.ceil() as u16);
+                    }
+
+                    return Some(euclid::rect(
+                        geometry.x() as u16,
+                        geometry.y() as u16,
+                        Self::MARGIN.0
+                            + Self::LABEL_PADDING.0
+                            + label_width
+                            + Self::LABEL_PADDING.0
+                            + Self::LABEL_TO_NAME_GAP
+                            + name_width
+                            + Self::MARGIN.0,
+                        Self::MARGIN.1
+                            + self.labels.len() as u16
+                                * (Self::LABEL_PADDING.1
+                                    + line_height
+                                    + Self::LABEL_PADDING.1
+                                    + Self::LINE_SPACING)
+                            - Self::LINE_SPACING
+                            + Self::MARGIN.1,
+                    ));
+                }
             }
-            self.configure_name_font(&context);
-            let mut name_width = 0;
-            for label in &self.labels {
-                let text_extents = context.text_extents(&label.1);
-                name_width = name_width.max(text_extents.width.ceil() as u16);
-            }
-            return Some(euclid::rect(self.x, self.y, 12 + label_width + 6 + name_width, 6 + (self.labels.len() as u16 * line_height)));
+            _ => {}
         }
 
         None
@@ -71,32 +102,65 @@ impl artist::Artist for WindowSelectorArtist {
     fn draw(&self, window: xcb::Window) {
         if let Ok(surface) = get_cairo_surface(window) {
             let context = cairo::Context::new(&surface);
+
             self.configure_label_font(&context);
             let font_extents = context.font_extents();
             let line_height = font_extents.height.ceil() as u16;
             let ascent = font_extents.ascent;
-            let mut y = 0;
+
             let mut label_width = 0;
             for label in &self.labels {
-                let text_extents = context.text_extents(&label.0);
-                context.move_to(
-                    6.0 - text_extents.x_bearing,
-                    3.0 + (y as f64) + ascent,
-                );
-                context.show_text(&label.0);
-                y += line_height;
+                let text_extents = context.text_extents(label);
                 label_width = label_width.max(text_extents.width.ceil() as u16);
             }
-            self.configure_name_font(&context);
-            let mut y = 0;
-            for label in &self.labels {
-                let text_extents = context.text_extents(&label.1);
-                context.move_to(
-                    6.0 + (label_width as f64) + 6.0 - text_extents.x_bearing,
-                    3.0 + (y as f64) + ascent,
-                );
-                context.show_text(&label.1);
-                y += line_height;
+
+            {
+                let mut top = Self::MARGIN.1;
+                let left = Self::MARGIN.0;
+                let right = left + Self::LABEL_PADDING.0 + label_width + Self::LABEL_PADDING.0;
+                for label in &self.labels {
+                    let bottom = top + Self::LABEL_PADDING.1 + line_height + Self::LABEL_PADDING.1;
+
+                    context.set_source_rgb(0.4, 0.0, 0.0);
+                    context.move_to(left as f64, top as f64);
+                    context.line_to(right as f64, top as f64);
+                    context.line_to(right as f64, bottom as f64);
+                    context.line_to(left as f64, bottom as f64);
+                    context.close_path();
+                    context.fill();
+
+                    context.set_source_rgb(1.0, 1.0, 1.0);
+                    context.move_to(
+                        (left + Self::LABEL_PADDING.0) as f64,
+                        (top + Self::LABEL_PADDING.1) as f64 + ascent - 1.0,
+                    );
+                    context.show_text(label);
+
+                    top = bottom + Self::LINE_SPACING;
+                }
+            }
+
+            {
+                self.configure_name_font(&context);
+                let mut top = Self::MARGIN.1;
+                let left = Self::MARGIN.0
+                    + Self::LABEL_PADDING.0
+                    + label_width
+                    + Self::LABEL_PADDING.0
+                    + Self::LABEL_TO_NAME_GAP;
+                context.set_source_rgb(0.2, 0.2, 0.5);
+                for window in &self.windows {
+                    let bottom = top + Self::LABEL_PADDING.1 + line_height + Self::LABEL_PADDING.1;
+
+                    let name = get_string_property(*window, *ATOM__NET_WM_NAME);
+                    context.move_to(
+                        left as f64,
+                        (top + Self::LABEL_PADDING.1) as f64 + ascent - 1.0,
+                    );
+                    context.show_text(&name);
+
+                    top = bottom + Self::LINE_SPACING;
+                }
             }
         }
     }
@@ -112,19 +176,18 @@ fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot
 
 fn layouts() -> Vec<LayoutRoot> {
     vec![
-        standard_layout_root(
-            "monad_tall_right_stack",
-            monad_stack(Direction::Decreasing, Axis::X, 0.75, 1),
-            // monad_stack(Direction::Decreasing, Axis::X, 0.75, 1),
-        ),
+        // standard_layout_root(
+        //     "monad_tall_right_stack",
+        //     monad_stack(Direction::Decreasing, Axis::X, 0.75, 1),
+        // ),
         standard_layout_root(
             "monad_tall_right",
             monad(Direction::Decreasing, Axis::X, 0.75, 1),
         ),
-        // standard_layout_root(
-        //     "monad_wide_top",
-        //     monad(Direction::Increasing, Axis::Y, 0.75, 1),
-        // ),
+        standard_layout_root(
+            "monad_wide_top",
+            monad(Direction::Increasing, Axis::Y, 0.75, 1),
+        ),
     ]
 }
 
@@ -363,8 +426,8 @@ impl WindowManager {
         let mut actions = self.workspaces[self.current_workspace].update_layout();
 
         if true {
-            let mut selector_chars = "asdfghjklqwertyuiopzxcvbnm1234567890".chars();
-            let mut selector_artists: Vec<WindowSelectorArtist> =
+            let mut selector_chars = "ASDFGHJKLQWERTYUIOPZXCVBNM1234567890".chars();
+            let mut selector_artists: Vec<(LayoutRect, WindowSelectorArtist)> =
                 Vec::with_capacity(self.workspaces[self.current_workspace].windows.len());
             for action in &actions {
                 match action {
@@ -376,20 +439,21 @@ impl WindowManager {
                     } => match selector_chars.next() {
                         Some(c) => {
                             let label = format!("{}", c);
-                            let name = get_string_property(*id, *ATOM__NET_WM_NAME);
-                            match selector_artists
-                                .iter_mut()
-                                .find(|d| d.x == rect.origin.x && d.y == rect.origin.y)
-                            {
-                                Some(artist) => {
-                                    artist.labels.push((label, name));
+                            match selector_artists.iter_mut().find(|(r, _)| {
+                                r.origin.x == rect.origin.x && r.origin.y == rect.origin.y
+                            }) {
+                                Some((_, artist)) => {
+                                    artist.labels.push(label);
+                                    artist.windows.push(*id);
                                 }
                                 None => {
-                                    selector_artists.push(WindowSelectorArtist {
-                                        x: rect.origin.x,
-                                        y: rect.origin.y,
-                                        labels: vec![(label, name)],
-                                    });
+                                    selector_artists.push((
+                                        *rect,
+                                        WindowSelectorArtist {
+                                            labels: vec![label],
+                                            windows: vec![*id],
+                                        },
+                                    ));
                                 }
                             }
                         }
@@ -399,7 +463,7 @@ impl WindowManager {
                 }
             }
 
-            for artist in selector_artists {
+            for (rect, artist) in selector_artists {
                 actions.push(Action::Draw {
                     artist: Rc::new(artist),
                 });
