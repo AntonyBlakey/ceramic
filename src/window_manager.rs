@@ -15,9 +15,10 @@ pub struct WindowManager {
     workspaces: Vec<Workspace>,
     current_workspace: usize,
     decorations: HashMap<xcb::Window, Rc<artist::Artist>>,
+    selector_command: Option<String>,
 }
 
-pub struct WindowSelectorArtist {
+struct WindowSelectorArtist {
     labels: Vec<String>,
     windows: Vec<xcb::Window>,
 }
@@ -229,6 +230,15 @@ impl WindowManager {
         let connection = connection();
         while let Some(e) = connection.wait_for_event() {
             self.dispatch_wm_event(&e);
+            if let Some(c) = &self.selector_command {
+                let command = c.clone();
+                self.selector_command = None;
+                if let Some(keysym) = self.run_window_selector_event_loop() {
+                    // dispatch command + keysym selected window
+                    let args = vec!["12345678"];
+                    self.execute_command(&command, &args);
+                }
+            }
         }
     }
 
@@ -416,25 +426,17 @@ impl WindowManager {
     }
 
     fn update_layout(&mut self) {
-        let connection = connection();
-
-        let screen = connection.get_setup().roots().nth(0).unwrap();
-        let root = screen.root();
-        let root_visual = screen.root_visual();
-
-        let values = [
-            (xcb::CW_BACK_PIXEL, screen.white_pixel()),
-            (xcb::CW_EVENT_MASK, xcb::EVENT_MASK_EXPOSURE),
-            (xcb::CW_OVERRIDE_REDIRECT, 1),
-        ];
-
         let mut actions = self.workspaces[self.current_workspace].update_layout();
+        self.add_selector_actions(&mut actions);
+        self.process_actions(&actions);
+        self.update_commands();
+    }
 
-        if true {
+    fn add_selector_actions(&self, actions: &mut Vec<Action>) {
+        if let Some(_command) = &self.selector_command {
             let mut selector_chars = "ASDFGHJKLQWERTYUIOPZXCVBNM1234567890".chars();
-            let mut selector_artists: Vec<(LayoutRect, WindowSelectorArtist)> =
-                Vec::with_capacity(self.workspaces[self.current_workspace].windows.len());
-            for action in &actions {
+            let mut selector_artists: Vec<(LayoutRect, WindowSelectorArtist)> = Vec::new();
+            for action in actions.iter() {
                 match action {
                     Action::Position {
                         id,
@@ -468,19 +470,32 @@ impl WindowManager {
                 }
             }
 
-            for (rect, artist) in selector_artists {
+            for (_, artist) in selector_artists {
                 actions.push(Action::Draw {
                     artist: Rc::new(artist),
                 });
             }
         }
+    }
+
+    fn process_actions(&mut self, actions: &Vec<Action>) {
+        let connection = connection();
+        let screen = connection.get_setup().roots().nth(0).unwrap();
+        let root = screen.root();
+        let root_visual = screen.root_visual();
+
+        let values = [
+            (xcb::CW_BACK_PIXEL, screen.white_pixel()),
+            (xcb::CW_EVENT_MASK, xcb::EVENT_MASK_EXPOSURE),
+            (xcb::CW_OVERRIDE_REDIRECT, 1),
+        ];
 
         // TODO: reuse decoration windows
         for window in self.decorations.keys().clone() {
             xcb::destroy_window(&connection, *window);
         }
 
-        for action in &actions {
+        for action in actions {
             match action {
                 Action::Draw { artist } => {
                     let new_id = connection.generate_id();
@@ -521,8 +536,6 @@ impl WindowManager {
                 _ => {}
             }
         }
-
-        self.update_commands();
     }
 
     fn update_commands(&self) {
