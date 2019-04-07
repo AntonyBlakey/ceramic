@@ -1,0 +1,29 @@
+#!/usr/bin/env zsh
+
+if [ -e "$HOME/.Xresources" ] ; then
+    xrdb "$HOME/.Xresources"
+fi
+
+xmodmap -e 'keycode any = F35'
+xmodmap -e 'keycode any = F34'
+xmodmap -e 'keycode any = Hyper_L'
+xmodmap -e 'keycode any = Hyper_R'
+
+xmodmap -e 'remove mod4 = Hyper_L'
+xmodmap -e 'remove mod4 = Hyper_R'
+xmodmap -e 'add mod3 = Hyper_L'
+xmodmap -e 'add mod3 = Hyper_R'
+
+xcape -e 'Hyper_L=Tab;Hyper_R=backslash;Control_L=F34;Control_R=F34;Super_L=F35;Super_R=F35'
+
+tigervncconfig -set RemapKeys="0xff09->0xffed" # Tab -> Hyper_L
+tigervncconfig -set RemapKeys="0x5c->0xffee"   # backslash -> Hyper_R 
+tigervncconfig -nowin & # Handles C/C/P
+
+# $HOME/.config/commando/launch.sh &
+nitrogen --random --set-scaled $HOME/.config/wallpaper &
+(sleep 4 ; alacritty & ) &
+(sleep 4 ; alacritty & ) &
+(sleep 4 ; alacritty & ) &
+# $HOME/.config/polybar/launch.sh &
+RUST_BACKTRACE=1 target/debug/ceramic

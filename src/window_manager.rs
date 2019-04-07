@@ -1,4 +1,6 @@
-use super::{artist, connection::*, layout::*, workspace::Workspace};
+use super::{
+    artist, connection::*, layout::*, window_selector::WindowSelectorArtist, workspace::Workspace,
+};
 use std::{collections::HashMap, rc::Rc};
 
 pub trait Commands {
@@ -20,161 +22,7 @@ pub struct WindowManager {
     workspaces: Vec<Workspace>,
     current_workspace: usize,
     decorations: HashMap<xcb::Window, Rc<artist::Artist>>,
-    selector_command: Option<String>,
-}
-
-struct WindowSelectorArtist {
-    labels: Vec<String>,
-    windows: Vec<xcb::Window>,
-}
-
-struct Point {
-    x: u16,
-    y: u16,
-}
-
-impl WindowSelectorArtist {
-    const FONT_FACE: &'static str = "Noto Sans Mono";
-    const FONT_SIZE: u16 = 12;
-
-    const MARGIN: Point = Point { x: 6, y: 2 };
-    const LABEL_PADDING: Point = Point { x: 4, y: 2 };
-    const LABEL_TO_NAME_GAP: u16 = 6;
-    const LINE_SPACING: u16 = 2;
-
-    fn configure_label_font(&self, context: &cairo::Context) {
-        context.select_font_face(
-            Self::FONT_FACE,
-            cairo::FontSlant::Normal,
-            cairo::FontWeight::Bold,
-        );
-        context.set_font_size(Self::FONT_SIZE as f64);
-    }
-
-    fn configure_name_font(&self, context: &cairo::Context) {
-        context.select_font_face(
-            Self::FONT_FACE,
-            cairo::FontSlant::Normal,
-            cairo::FontWeight::Normal,
-        );
-        context.set_font_size(Self::FONT_SIZE as f64);
-    }
-}
-
-impl artist::Artist for WindowSelectorArtist {
-    fn calculate_bounds(&self, window: xcb::Window) -> Option<LayoutRect> {
-        match xcb::get_geometry(&connection(), self.windows[0]).get_reply() {
-            Ok(geometry) => {
-                if let Ok(surface) = get_cairo_surface(window) {
-                    let context = cairo::Context::new(&surface);
-
-                    self.configure_label_font(&context);
-                    let font_extents = context.font_extents();
-                    let line_height = font_extents.height.ceil() as u16;
-
-                    let mut label_width = 0;
-                    for label in &self.labels {
-                        let text_extents = context.text_extents(label);
-                        label_width = label_width.max(text_extents.width.ceil() as u16);
-                    }
-
-                    self.configure_name_font(&context);
-                    let mut name_width = 0;
-                    for window in &self.windows {
-                        let name = get_string_property(*window, *ATOM__NET_WM_NAME);
-                        let text_extents = context.text_extents(&name);
-                        name_width = name_width.max(text_extents.width.ceil() as u16);
-                    }
-
-                    return Some(euclid::rect(
-                        geometry.x() as u16,
-                        geometry.y() as u16,
-                        Self::MARGIN.x
-                            + Self::LABEL_PADDING.x
-                            + label_width
-                            + Self::LABEL_PADDING.x
-                            + Self::LABEL_TO_NAME_GAP
-                            + name_width
-                            + Self::MARGIN.x,
-                        Self::MARGIN.y
-                            + self.labels.len() as u16
-                                * (Self::LABEL_PADDING.y
-                                    + line_height
-                                    + Self::LABEL_PADDING.y
-                                    + Self::LINE_SPACING)
-                            - Self::LINE_SPACING
-                            + Self::MARGIN.y,
-                    ));
-                }
-            }
-            _ => {}
-        }
-
-        None
-    }
-
-    fn draw(&self, window: xcb::Window) {
-        if let Ok(surface) = get_cairo_surface(window) {
-            let context = cairo::Context::new(&surface);
-
-            self.configure_label_font(&context);
-            let font_extents = context.font_extents();
-            let line_height = font_extents.height.ceil() as u16;
-            let ascent = font_extents.ascent;
-
-            let mut label_width = 0;
-            for label in &self.labels {
-                let text_extents = context.text_extents(label);
-                label_width = label_width.max(text_extents.width.ceil() as u16);
-            }
-
-            {
-                let mut top = Self::MARGIN.y;
-                let left = Self::MARGIN.x;
-                let right = left + Self::LABEL_PADDING.x + label_width + Self::LABEL_PADDING.x;
-                for label in &self.labels {
-                    let bottom = top + Self::LABEL_PADDING.y + line_height + Self::LABEL_PADDING.y;
-
-                    context.set_source_rgb(0.4, 0.0, 0.0);
-                    context.move_to(left as f64, top as f64);
-                    context.line_to(right as f64, top as f64);
-                    context.line_to(right as f64, bottom as f64);
-                    context.line_to(left as f64, bottom as f64);
-                    context.close_path();
-                    context.fill();
-
-                    context.set_source_rgb(1.0, 1.0, 1.0);
-                    context.move_to(
-                        (left + Self::LABEL_PADDING.x) as f64,
-                        (top + Self::LABEL_PADDING.y) as f64 + ascent,
-                    );
-                    context.show_text(label);
-
-                    top = bottom + Self::LINE_SPACING;
-                }
-            }
-
-            {
-                self.configure_name_font(&context);
-                let mut top = Self::MARGIN.y;
-                let left = Self::MARGIN.x
-                    + Self::LABEL_PADDING.x
-                    + label_width
-                    + Self::LABEL_PADDING.x
-                    + Self::LABEL_TO_NAME_GAP;
-                context.set_source_rgb(0.2, 0.2, 0.5);
-                for window in &self.windows {
-                    let bottom = top + Self::LABEL_PADDING.y + line_height + Self::LABEL_PADDING.y;
-
-                    let name = get_string_property(*window, *ATOM__NET_WM_NAME);
-                    context.move_to(left as f64, (top + Self::LABEL_PADDING.y) as f64 + ascent);
-                    context.show_text(&name);
-
-                    top = bottom + Self::LINE_SPACING;
-                }
-            }
-        }
-    }
+    show_window_selectors: bool,
 }
 
 fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
@@ -219,9 +67,7 @@ impl WindowManager {
             xcb::CW_EVENT_MASK,
             xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY
                 | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT
-                | xcb::EVENT_MASK_PROPERTY_CHANGE
-                | xcb::EVENT_MASK_KEY_PRESS
-                | xcb::EVENT_MASK_KEY_RELEASE,
+                | xcb::EVENT_MASK_PROPERTY_CHANGE,
         )];
         xcb::change_window_attributes_checked(&connection, screen.root(), &values)
             .request_check()
@@ -237,32 +83,22 @@ impl WindowManager {
         let connection = connection();
         while let Some(e) = connection.wait_for_event() {
             self.dispatch_wm_event(&e);
-            if let Some(c) = &self.selector_command {
-                let command = c.clone();
-                eprintln!("Run a selector for: {}", command);
-                self.selector_command = None;
-                if let Some(keysym) = self.run_window_selector_event_loop() {
-                    // dispatch command + keysym selected window
-                    let args = vec!["12345678"];
-                    self.execute_command(&command, &args);
-                }
-            }
         }
     }
 
-    fn run_window_selector_event_loop(&mut self) -> Option<xcb::Keysym> {
-        eprintln!("Enter selector loop");
-        self.grab_keyboard();
+    fn select_window(&mut self) -> Option<xcb::Window> {
+        self.show_window_selectors = true;
+        self.update_layout();
         let connection = connection();
         let mut key_press_count = 0;
         let mut first_key_down: Option<xcb::Keysym> = None;
+        self.grab_keyboard();
+        self.allow_events();
         while let Some(e) = connection.wait_for_event() {
-            eprintln!("Selector loop event: {}", e.response_type());
             match e.response_type() & 0x7f {
                 xcb::KEY_PRESS => {
                     let press_event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
                     if key_press_count == 0 {
-                        eprintln!("Begin key listening");
                         let keycode = press_event.detail();
                         let state = press_event.state();
                         first_key_down = Some(0);
@@ -274,16 +110,20 @@ impl WindowManager {
                 xcb::KEY_RELEASE => {
                     key_press_count -= 1;
                     if key_press_count == 0 {
-                        eprintln!("End key listening");
                         break;
                     }
                 }
-                _ => self.dispatch_wm_event(&e),
+                _ => {
+                    self.dispatch_wm_event(&e);
+                }
             }
+            self.allow_events();
         }
         self.ungrab_keyboard();
-        eprintln!("Exit selector loop");
-        first_key_down
+        self.allow_events();
+        self.show_window_selectors = false;
+        self.update_layout();
+        None
     }
 
     fn grab_keyboard(&self) {
@@ -299,7 +139,7 @@ impl WindowManager {
         )
         .get_reply()
         {
-            Ok(_) => eprintln!("Grabbed yeyboard"),
+            Ok(_) => (),
             Err(x) => eprintln!("Failed to grab keyboard: {:?}", x),
         }
         connection.flush();
@@ -308,7 +148,16 @@ impl WindowManager {
     fn ungrab_keyboard(&self) {
         let connection = connection();
         xcb::ungrab_keyboard(&connection, xcb::CURRENT_TIME);
-        eprintln!("Ungrabbed keyboard");
+        connection.flush();
+    }
+
+    fn allow_events(&self) {
+        let connection = connection();
+        xcb::xproto::allow_events(
+            &connection,
+            xcb::ALLOW_SYNC_KEYBOARD as u8,
+            xcb::CURRENT_TIME,
+        );
         connection.flush();
     }
 
@@ -424,7 +273,9 @@ impl WindowManager {
         if e.atom() == *ATOM_CERAMIC_COMMAND && e.state() == xcb::PROPERTY_NEW_VALUE as u8 {
             let command = get_string_property(e.window(), e.atom());
             xcb::delete_property(&connection(), e.window(), e.atom());
-            self.parse_and_dispatch_command(command.as_str());
+            if !self.show_window_selectors {
+                self.parse_and_dispatch_command(command.as_str());
+            }
         }
     }
 
@@ -439,8 +290,6 @@ impl WindowManager {
         if !self.decorations.contains_key(&e.window()) {
             self.workspaces[self.current_workspace].remove_window(e.window());
             self.update_layout();
-        } else {
-            self.decorations.remove(&e.window());
         }
     }
 
@@ -453,7 +302,7 @@ impl WindowManager {
     }
 
     fn add_selector_actions(&self, actions: &mut Vec<Action>) {
-        if let Some(_command) = &self.selector_command {
+        if self.show_window_selectors {
             let mut selector_chars = "ASDFGHJKLQWERTYUIOPZXCVBNM1234567890".chars();
             let mut selector_artists: Vec<(LayoutRect, WindowSelectorArtist)> = Vec::new();
             for action in actions.iter() {
@@ -511,9 +360,11 @@ impl WindowManager {
         ];
 
         // TODO: reuse decoration windows
-        for window in self.decorations.keys().clone() {
-            xcb::destroy_window(&connection, *window);
+
+        for window in self.decorations.keys().copied() {
+            xcb::destroy_window(&connection, window);
         }
+        self.decorations.clear();
 
         for action in actions {
             match action {
@@ -604,11 +455,15 @@ impl Commands for WindowManager {
         args: &[&str],
     ) -> Option<Box<Fn(&mut WindowManager)>> {
         match args.get(0) {
-            Some(&"{window}") => {
-                self.selector_command = Some(command.to_owned());
-                self.update_layout();
-                None
-            }
+            Some(&"{window}") => match self.select_window() {
+                Some(window) => {
+                    let mut new_args = args.to_vec().clone();
+                    let window_arg = format!("{}", window);
+                    new_args[0] = window_arg.as_str();
+                    self.execute_command(command, &new_args)
+                }
+                None => None,
+            },
             _ => match command {
                 "switch_to_workspace_named:" => None,
                 "move_focused_window_to_workspace_named:" => None,

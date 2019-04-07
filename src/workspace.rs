@@ -136,7 +136,7 @@ impl Commands for Workspace {
                 "switch_to_layout_named:" => None,
                 "move_focus_to_window:" => {
                     eprintln!("Move focus to window: {}", args[0]);
-                    None
+                    Some(Box::new(|w| w.update_layout()))
                 }
                 _ => match self.focused_window {
                     Some(index) => {

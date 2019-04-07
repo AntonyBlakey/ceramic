@@ -300,12 +300,10 @@ pub fn get_cairo_surface(window: xcb::Window) -> Result<cairo::Surface, xcb::Gen
     let cairo_drawable = cairo::XCBDrawable(window);
 
     let screen = connection.get_setup().roots().nth(0).unwrap();
-    let depth = screen
+    let mut visual = screen
         .allowed_depths()
-        .find(|d| d.depth() == screen.root_depth())
-        .unwrap();
-    let mut visual = depth
-        .visuals()
+        .filter(|d| d.depth() == screen.root_depth())
+        .flat_map(|d| d.visuals())
         .find(|v| v.visual_id() == screen.root_visual())
         .unwrap();
     let cairo_visualtype = unsafe {

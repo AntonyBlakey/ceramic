@@ -1,10 +1,11 @@
-#![feature(vec_remove_item, trait_alias)]
+#![feature(vec_remove_item, trait_alias, iter_copied)]
 #![recursion_limit = "128"]
 
 mod artist;
 mod connection;
 mod layout;
 mod window_data;
+mod window_selector;
 mod window_manager;
 mod workspace;
 
