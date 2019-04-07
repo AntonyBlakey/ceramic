@@ -1,4 +1,8 @@
-use super::{connection::*, layout::LayoutRect, window_manager::Commands};
+use super::{
+    connection::*,
+    layout::LayoutRect,
+    window_manager::{Commands, WindowManager},
+};
 
 pub struct WindowData {
     pub id: xcb::Window,
@@ -53,12 +57,20 @@ impl Commands for WindowData {
         vec![String::from("close_focused_window")]
     }
 
-    fn execute_command(&mut self, command: &str, args: &[&str]) {
+    fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
         match command {
             "close_focused_window" => {
                 xcb::kill_client(&connection(), self.id);
+                None
             }
-            _ => eprintln!("Unhandled command: {}", command),
+            _ => {
+                eprintln!("Unhandled command: {}", command);
+                None
+            }
         }
     }
 }

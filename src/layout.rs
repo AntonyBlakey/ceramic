@@ -1,4 +1,9 @@
-use super::{artist, connection::*, window_data::WindowData, window_manager::Commands};
+use super::{
+    artist,
+    connection::*,
+    window_data::WindowData,
+    window_manager::{Commands, WindowManager},
+};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -176,12 +181,17 @@ impl LayoutRoot {
             .collect()
     }
 
-    pub fn execute_command(&mut self, command: &str, args: &[&str]) {
+    pub fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
         if command.starts_with(self.name.as_str()) {
             self.child
-                .execute_command(command.split_at(self.name.len() + 1).1, args);
+                .execute_command(command.split_at(self.name.len() + 1).1, args)
         } else {
             eprintln!("Command not valid for layout {} : {}", self.name, command);
+            None
         }
     }
 }
@@ -216,8 +226,12 @@ impl<A: Layout> Commands for IgnoreSomeWindows<A> {
         self.child.get_commands()
     }
 
-    fn execute_command(&mut self, command: &str, args: &[&str]) {
-        self.child.execute_command(command, args);
+    fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
+        self.child.execute_command(command, args)
     }
 }
 
@@ -257,8 +271,12 @@ impl<A: Layout> Commands for AvoidStruts<A> {
         self.child.get_commands()
     }
 
-    fn execute_command(&mut self, command: &str, args: &[&str]) {
-        self.child.execute_command(command, args);
+    fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
+        self.child.execute_command(command, args)
     }
 }
 
@@ -309,8 +327,12 @@ impl<A: Layout> Commands for AddGaps<A> {
         self.child.get_commands()
     }
 
-    fn execute_command(&mut self, command: &str, args: &[&str]) {
-        self.child.execute_command(command, args);
+    fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
+        self.child.execute_command(command, args)
     }
 }
 
@@ -364,8 +386,12 @@ impl<A: Layout> Commands for AddFocusBorder<A> {
         self.child.get_commands()
     }
 
-    fn execute_command(&mut self, command: &str, args: &[&str]) {
-        self.child.execute_command(command, args);
+    fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
+        self.child.execute_command(command, args)
     }
 }
 
@@ -581,7 +607,11 @@ impl<A: Layout, B: Layout> Commands for SplitLayout<A, B> {
         result
     }
 
-    fn execute_command(&mut self, command: &str, args: &[&str]) {
+    fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
         if command.starts_with("0/") {
             self.children.0.execute_command(command.split_at(2).1, args)
         } else if command.starts_with("1/") {
@@ -592,8 +622,9 @@ impl<A: Layout, B: Layout> Commands for SplitLayout<A, B> {
                 "decrease_count" if self.count > 1 => self.count -= 1,
                 "increase_ratio" if self.ratio < 0.9 => self.ratio += 0.05,
                 "decrease_ratio" if self.ratio > 0.1 => self.ratio -= 0.05,
-                _ => {}
+                _ => (),
             }
+            Some(Box::new(|wm| wm.update_layout()))
         }
     }
 }

@@ -2,15 +2,33 @@
 command = "cargo"
 args = ["build"]
 
-[tasks.xephyr]
+[tasks.start-xephyr]
 script = [
     "Xephyr :1 -screen 1680x1050 &",
     "sleep 1",
+]
+
+[tasks.start-vnc]
+script = [
+    "tigervncserver :1 -localhost no --I-KNOW-THIS-IS-INSECURE -fg -cleanstale -geometry 2560x1440 -depth 24 -dpi 96 -rfbport 5901 -SecurityTypes None -AllowOverride RemapKeys &",
+    "sleep 2",
+]
+
+[tasks.apps]
+env = { DISPLAY = ":1" }
+script = [
+    "(sleep 2 ; nitrogen --set-scaled ~/.config/wallpaper/rsmith_single_blade_of_grass.jpg) &",
+    "(sleep 2 ; alacritty &) &",
+    "(sleep 2 ; alacritty &) &",
+    "(sleep 2 ; alacritty &) &",
 ]
 
 [tasks.ceramic]
 env = { DISPLAY = ":1", RUST_BACKTRACE = "1" }
 command = "target/debug/ceramic"
 
-[tasks.spin]
-dependencies = ["build", "xephyr", "ceramic"]
+[tasks.xephyr]
+dependencies = ["build", "start-xephyr", "apps", "ceramic"]
+
+[tasks.vnc]
+dependencies = ["build", "start-vnc", "apps", "ceramic"]

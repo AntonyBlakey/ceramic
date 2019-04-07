@@ -1,4 +1,9 @@
-use super::{connection::*, layout::*, window_data::WindowData, window_manager::Commands};
+use super::{
+    connection::*,
+    layout::*,
+    window_data::WindowData,
+    window_manager::{Commands, WindowManager},
+};
 
 pub struct Workspace {
     pub name: String,
@@ -100,36 +105,41 @@ impl Commands for Workspace {
             if let Some(index) = self.focused_window {
                 // TODO: this should be the count of floating vs. non-floating *focusable* windows
                 if self.windows.len() > 1 {
-                    commands.push(String::from("select_a_window_and_focus_on_it"));
+                    commands.push(String::from("move_focus_to_window:"));
                     commands.push(String::from("move_focused_window_to_head"));
                     commands.push(String::from("move_focused_window_forward"));
                     commands.push(String::from("move_focused_window_backward"));
                     commands.push(String::from("move_focus_to_next_window"));
                     commands.push(String::from("move_focus_to_previous_window"));
-                    commands.push(String::from(
-                        "select_a_window_and_move_focused_window_to_that_position",
-                    ));
-                    commands.push(String::from("select_a_window_and_swap_with_focused_window"));
+                    commands.push(String::from("move_focused_window_to_position_of_window:"));
+                    commands.push(String::from("swap_focused_window_with_window:"));
                 }
                 commands.extend(self.windows[index].get_commands().into_iter());
             } else {
-                commands.push(String::from("select_a_window_and_focus_on_it"));
+                commands.push(String::from("move_focus_to_window:"));
             }
         }
         commands
     }
 
-    fn execute_command(&mut self, command: &str, args: &[&str]) {
+    fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
         if command.starts_with("layout/") {
-            self.layouts[self.current_layout].execute_command(command.split_at(7).1, args);
+            self.layouts[self.current_layout].execute_command(command.split_at(7).1, args)
         } else {
             match command {
-                "switch_to_next_layout" => {}
-                "switch_to_previous_layout" => {}
-                "switch_to_layout_named:" => {}
-                "select_a_window_and_focus_on_it" => {}
-                _ => {
-                    if let Some(index) = self.focused_window {
+                "switch_to_next_layout" => None,
+                "switch_to_previous_layout" => None,
+                "switch_to_layout_named:" => None,
+                "move_focus_to_window:" => {
+                    eprintln!("Move focus to window: {}", args[0]);
+                    None
+                }
+                _ => match self.focused_window {
+                    Some(index) => {
                         match command {
                             "move_focused_window_to_head" => {
                                 // Wrap around
@@ -137,6 +147,7 @@ impl Commands for Workspace {
                                 let window = self.windows.remove(index);
                                 self.windows.insert(new_index, window);
                                 self.set_focused_window(Some(new_index));
+                                Some(Box::new(|w| w.update_layout()))
                             }
                             "move_focused_window_forward" => {
                                 // Wrap around
@@ -144,6 +155,7 @@ impl Commands for Workspace {
                                 let window = self.windows.remove(index);
                                 self.windows.insert(new_index, window);
                                 self.set_focused_window(Some(new_index));
+                                Some(Box::new(|w| w.update_layout()))
                             }
                             "move_focused_window_backward" => {
                                 // Wrap around
@@ -152,24 +164,28 @@ impl Commands for Workspace {
                                 let window = self.windows.remove(index);
                                 self.windows.insert(new_index, window);
                                 self.set_focused_window(Some(new_index));
+                                Some(Box::new(|w| w.update_layout()))
                             }
                             "move_focus_to_next_window" => {
                                 // Wrap around
                                 let new_index = (index + 1) % self.windows.len();
                                 self.set_focused_window(Some(new_index));
+                                Some(Box::new(|w| w.update_layout()))
                             }
                             "move_focus_to_previous_window" => {
                                 // Wrap around
                                 let new_index =
                                     (index + self.windows.len() - 1) % self.windows.len();
                                 self.set_focused_window(Some(new_index));
+                                Some(Box::new(|w| w.update_layout()))
                             }
-                            "select_a_window_and_move_focused_window_to_that_position" => {}
-                            "select_a_window_and_swap_with_focused_window" => {}
+                            "move_focused_window_to_position_of_window:" => None,
+                            "swap_focused_window_with_window:" => None,
                             _ => self.windows[index].execute_command(command, args),
                         }
                     }
-                }
+                    None => None,
+                },
             }
         }
     }

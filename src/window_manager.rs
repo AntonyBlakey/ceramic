@@ -5,8 +5,13 @@ pub trait Commands {
     fn get_commands(&self) -> Vec<String> {
         Default::default()
     }
-    fn execute_command(&mut self, command: &str, args: &[&str]) {
+    fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
         eprintln!("Unhandled command: {}", command);
+        None
     }
 }
 
@@ -214,7 +219,9 @@ impl WindowManager {
             xcb::CW_EVENT_MASK,
             xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY
                 | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT
-                | xcb::EVENT_MASK_PROPERTY_CHANGE,
+                | xcb::EVENT_MASK_PROPERTY_CHANGE
+                | xcb::EVENT_MASK_KEY_PRESS
+                | xcb::EVENT_MASK_KEY_RELEASE,
         )];
         xcb::change_window_attributes_checked(&connection, screen.root(), &values)
             .request_check()
@@ -232,6 +239,7 @@ impl WindowManager {
             self.dispatch_wm_event(&e);
             if let Some(c) = &self.selector_command {
                 let command = c.clone();
+                eprintln!("Run a selector for: {}", command);
                 self.selector_command = None;
                 if let Some(keysym) = self.run_window_selector_event_loop() {
                     // dispatch command + keysym selected window
@@ -243,15 +251,18 @@ impl WindowManager {
     }
 
     fn run_window_selector_event_loop(&mut self) -> Option<xcb::Keysym> {
+        eprintln!("Enter selector loop");
         self.grab_keyboard();
         let connection = connection();
         let mut key_press_count = 0;
         let mut first_key_down: Option<xcb::Keysym> = None;
         while let Some(e) = connection.wait_for_event() {
+            eprintln!("Selector loop event: {}", e.response_type());
             match e.response_type() & 0x7f {
                 xcb::KEY_PRESS => {
                     let press_event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
                     if key_press_count == 0 {
+                        eprintln!("Begin key listening");
                         let keycode = press_event.detail();
                         let state = press_event.state();
                         first_key_down = Some(0);
@@ -263,6 +274,7 @@ impl WindowManager {
                 xcb::KEY_RELEASE => {
                     key_press_count -= 1;
                     if key_press_count == 0 {
+                        eprintln!("End key listening");
                         break;
                     }
                 }
@@ -270,26 +282,33 @@ impl WindowManager {
             }
         }
         self.ungrab_keyboard();
+        eprintln!("Exit selector loop");
         first_key_down
     }
 
     fn grab_keyboard(&self) {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
-        xcb::grab_keyboard(
+        match xcb::grab_keyboard(
             &connection,
             false,
             screen.root(),
             xcb::CURRENT_TIME,
             xcb::GRAB_MODE_ASYNC as u8,
             xcb::GRAB_MODE_SYNC as u8,
-        );
+        )
+        .get_reply()
+        {
+            Ok(_) => eprintln!("Grabbed yeyboard"),
+            Err(x) => eprintln!("Failed to grab keyboard: {:?}", x),
+        }
         connection.flush();
     }
 
     fn ungrab_keyboard(&self) {
         let connection = connection();
         xcb::ungrab_keyboard(&connection, xcb::CURRENT_TIME);
+        eprintln!("Ungrabbed keyboard");
         connection.flush();
     }
 
@@ -425,7 +444,8 @@ impl WindowManager {
         }
     }
 
-    fn update_layout(&mut self) {
+    // Public because it is called by the command result functions
+    pub fn update_layout(&mut self) {
         let mut actions = self.workspaces[self.current_workspace].update_layout();
         self.add_selector_actions(&mut actions);
         self.process_actions(&actions);
@@ -556,7 +576,10 @@ impl WindowManager {
         let mut tokens = command_string.split(' ');
         if let Some(command) = tokens.next() {
             let args = tokens.collect::<Vec<_>>();
-            self.execute_command(command, &args);
+            match self.execute_command(command, &args) {
+                Some(f) => f(self),
+                None => (),
+            }
         }
     }
 }
@@ -575,18 +598,26 @@ impl Commands for WindowManager {
         commands
     }
 
-    fn execute_command(&mut self, command: &str, args: &[&str]) {
-        match command {
-            "switch_to_workspace_named:" => {}
-            "move_focused_window_to_workspace_named:" => {}
-            "switch_to_next_workspace" => {}
-            "switch_to_previous_workspace" => {}
-            "quit" => {}
-            "reload" => {}
-            _ => {
-                self.workspaces[self.current_workspace].execute_command(command, args);
+    fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
+        match args.get(0) {
+            Some(&"{window}") => {
+                self.selector_command = Some(command.to_owned());
                 self.update_layout();
+                None
             }
+            _ => match command {
+                "switch_to_workspace_named:" => None,
+                "move_focused_window_to_workspace_named:" => None,
+                "switch_to_next_workspace" => None,
+                "switch_to_previous_workspace" => None,
+                "quit" => None,
+                "reload" => None,
+                _ => self.workspaces[self.current_workspace].execute_command(command, args),
+            },
         }
     }
 }
