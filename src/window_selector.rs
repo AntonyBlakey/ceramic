@@ -1,6 +1,7 @@
 use super::{artist, connection::*, layout::*, window_manager};
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
+#[derive(Default)]
 struct WindowSelectorArtist {
     windows: Vec<xcb::Window>,
 }
@@ -53,7 +54,7 @@ impl artist::Artist for WindowSelectorArtist {
                 let mut name_width = 0;
                 for window in &self.windows {
                     self.configure_label_font(&context);
-                    let label = get_string_property(*window, *ATOM_CERAMIC_WINDOW_SELECTOR_LABEL);
+                    let label = get_string_property(*window, *ATOM_CERAMIC_SELECTOR_LABEL);
                     let text_extents = context.text_extents(&label);
                     label_width = label_width.max(text_extents.width.ceil() as u16);
                     self.configure_name_font(&context);
@@ -98,7 +99,7 @@ impl artist::Artist for WindowSelectorArtist {
 
             let mut label_width = 0;
             for window in &self.windows {
-                let label = get_string_property(*window, *ATOM_CERAMIC_WINDOW_SELECTOR_LABEL);
+                let label = get_string_property(*window, *ATOM_CERAMIC_SELECTOR_LABEL);
                 let text_extents = context.text_extents(&label);
                 label_width = label_width.max(text_extents.width.ceil() as u16);
             }
@@ -139,7 +140,7 @@ impl artist::Artist for WindowSelectorArtist {
                         (top + Self::LABEL_PADDING.y) as f64 + ascent,
                     );
                     self.configure_label_font(&context);
-                    let label = get_string_property(*window, *ATOM_CERAMIC_WINDOW_SELECTOR_LABEL);
+                    let label = get_string_property(*window, *ATOM_CERAMIC_SELECTOR_LABEL);
                     context.show_text(&label);
 
                     top = bottom + Self::LINE_SPACING;
@@ -151,30 +152,31 @@ impl artist::Artist for WindowSelectorArtist {
 
 pub fn add_actions(actions: &mut Vec<Action>) {
     let mut selector_chars = "ASDFGHJKLQWERTYUIOPZXCVBNM1234567890".chars();
-    let mut selector_artists: Vec<(LayoutRect, WindowSelectorArtist)> = Vec::new();
+    let mut selector_artists: HashMap<xcb::Window, WindowSelectorArtist> = HashMap::new();
+    let mut stack_leaders: HashMap<xcb::Window, xcb::Window> = HashMap::new();
     for action in actions.iter() {
         match action {
+            Action::Stack { windows } => {
+                // TODO: set window ordering
+                let mut i = windows.iter();
+                if let Some(leader) = i.next() {
+                    for window in i {
+                        stack_leaders.insert(*window, *leader);
+                    }
+                }
+            }
             Action::Position {
                 id,
-                rect,
+                rect: _,
                 border_width: _,
                 border_color: _,
             } => match selector_chars.next() {
                 Some(c) => {
                     let label = format!("{}", c);
-                    set_string_property(*id, *ATOM_CERAMIC_WINDOW_SELECTOR_LABEL, &label);
-                    match selector_artists
-                        .iter_mut()
-                        .find(|(r, _)| r.origin.x == rect.origin.x && r.origin.y == rect.origin.y)
-                    {
-                        Some((_, artist)) => {
-                            artist.windows.push(*id);
-                        }
-                        None => {
-                            selector_artists
-                                .push((*rect, WindowSelectorArtist { windows: vec![*id] }));
-                        }
-                    }
+                    set_string_property(*id, *ATOM_CERAMIC_SELECTOR_LABEL, &label);
+                    let leader = stack_leaders.get(id).unwrap_or(id);
+                    let artist = selector_artists.entry(*leader).or_default();
+                    artist.windows.push(*id);
                 }
                 None => {}
             },
@@ -183,7 +185,7 @@ pub fn add_actions(actions: &mut Vec<Action>) {
     }
 
     for (_, artist) in selector_artists {
-        actions.push(Action::Draw {
+        actions.push(Action::Decorate {
             artist: Rc::new(artist),
         });
     }
@@ -214,7 +216,7 @@ pub fn run(wm: &mut window_manager::WindowManager) -> Option<xcb::Window> {
                             .windows
                             .iter()
                             .find(|w| {
-                                get_string_property(w.id, *ATOM_CERAMIC_WINDOW_SELECTOR_LABEL)
+                                get_string_property(w.id, *ATOM_CERAMIC_SELECTOR_LABEL)
                                     == key_string
                             })
                             .map(|w| w.id)

@@ -88,7 +88,7 @@ lazy_static! {
     //
     pub static ref ATOM_CERAMIC_COMMAND: u32 = get_atom("CERAMIC_COMMAND");
     pub static ref ATOM_CERAMIC_AVAILABLE_COMMANDS: u32 = get_atom("CERAMIC_AVAILABLE_COMMANDS");
-    pub static ref ATOM_CERAMIC_WINDOW_SELECTOR_LABEL: u32 = get_atom("CERAMIC_WINDOW_SELECTOR_LABEL");
+    pub static ref ATOM_CERAMIC_SELECTOR_LABEL: u32 = get_atom("CERAMIC_SELECTOR_LABEL");
 }
 
 pub fn set_cardinal_property(window: xcb::Window, name_atom: u32, value: u32) {

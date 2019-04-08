@@ -113,7 +113,7 @@ impl WindowManager {
         if self.show_window_selectors {
             window_selector::add_actions(&mut actions);
         }
-        self.process_actions(&actions);
+        self.process_layout_actions(&actions);
         self.update_available_commands();
     }
 
@@ -178,7 +178,7 @@ impl WindowManager {
         connection.flush();
     }
 
-    fn process_actions(&mut self, actions: &Vec<Action>) {
+    fn process_layout_actions(&mut self, actions: &Vec<Action>) {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let root = screen.root();
@@ -199,7 +199,7 @@ impl WindowManager {
 
         for action in actions {
             match action {
-                Action::Draw { artist } => {
+                Action::Decorate { artist } => {
                     let new_id = connection.generate_id();
                     xcb::create_window(
                         &connection,

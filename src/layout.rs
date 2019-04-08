@@ -50,8 +50,11 @@ pub trait Layout: Commands {
 }
 
 pub enum Action {
-    Draw {
+    Decorate {
         artist: Rc<artist::Artist>,
+    },
+    Stack {
+        windows: Vec<xcb::Window>,
     },
     Position {
         id: xcb::Window,
@@ -451,7 +454,7 @@ impl Layout for StackLayout {
         let mut actions = Vec::with_capacity(windows.len() + 1);
         let mut r = *rect;
 
-        actions.push(Action::Draw {
+        actions.push(Action::Decorate {
             artist: Rc::new(StackIndicatorArtist {
                 window: windows[0].id,
                 axis: if rect.size.width > rect.size.height {
@@ -643,7 +646,9 @@ impl Layout for LinearLayout {
             return Default::default();
         }
 
-        let mut result = Vec::with_capacity(windows.len());
+        let mut result = Vec::with_capacity(windows.len() + 1);
+
+        result.push(Action::Stack{ windows: windows.iter().map(|w|w.id).collect() });
 
         match self.axis {
             Axis::X => {
