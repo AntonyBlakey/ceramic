@@ -5,8 +5,8 @@ mod artist;
 mod connection;
 mod layout;
 mod window_data;
-mod window_selector;
 mod window_manager;
+mod window_selector;
 mod workspace;
 
 use structopt::StructOpt;

@@ -134,10 +134,16 @@ impl Commands for Workspace {
                 "switch_to_next_layout" => None,
                 "switch_to_previous_layout" => None,
                 "switch_to_layout_named:" => None,
-                "move_focus_to_window:" => {
-                    eprintln!("Move focus to window: {}", args[0]);
-                    Some(Box::new(|w| w.update_layout()))
-                }
+                "move_focus_to_window:" => match args[0].parse::<u32>() {
+                    Ok(window) => match self.windows.iter().position(|w| w.id == window) {
+                        Some(index) => {
+                            self.set_focused_window(Some(index));
+                            Some(Box::new(|w| w.update_layout()))
+                        }
+                        None => None,
+                    },
+                    Err(_) => None,
+                },
                 _ => match self.focused_window {
                     Some(index) => {
                         match command {
