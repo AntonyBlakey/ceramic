@@ -1,19 +1,8 @@
-use super::{artist, connection::*, layout::*, window_selector, workspace::Workspace};
+use super::{
+    artist, commands::Commands, config, connection::*, layout::*, window_selector,
+    workspace::Workspace,
+};
 use std::{collections::HashMap, rc::Rc};
-
-pub trait Commands {
-    fn get_commands(&self) -> Vec<String> {
-        Default::default()
-    }
-    fn execute_command(
-        &mut self,
-        command: &str,
-        _args: &[&str],
-    ) -> Option<Box<Fn(&mut WindowManager)>> {
-        eprintln!("Unhandled command: {}", command);
-        None
-    }
-}
 
 #[derive(Default)]
 pub struct WindowManager {
@@ -23,38 +12,12 @@ pub struct WindowManager {
     show_window_selectors: bool,
 }
 
-fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
-    let add_focus_border = add_focus_border(1, (0, 255, 0), child);
-    let add_gaps = add_gaps(5, 5, add_focus_border);
-    let ignore_some_windows = ignore_some_windows(add_gaps);
-    let avoid_struts = avoid_struts(ignore_some_windows);
-    root(name, avoid_struts)
-}
-
-fn layouts() -> Vec<LayoutRoot> {
-    vec![
-        // standard_layout_root(
-        //     "monad_tall_right_stack",
-        //     monad_stack(Direction::Decreasing, Axis::X, 0.75, 1),
-        // ),
-        standard_layout_root(
-            "monad_tall_right",
-            monad(Direction::Decreasing, Axis::X, 0.75, 1),
-        ),
-        standard_layout_root(
-            "monad_wide_top",
-            monad(Direction::Increasing, Axis::Y, 0.75, 1),
-        ),
-    ]
-}
-
 pub fn run() {
     let mut wm = WindowManager::default();
-    for i in 1..=9 {
-        wm.add_workspace(&format!("{}", i), layouts());
-    }
+    config::configure(&mut wm);
 
     // TODO: handle all screens
+
     let connection = connection();
     let screen = connection.get_setup().roots().nth(0).unwrap();
     let values = [(
@@ -76,6 +39,17 @@ pub fn run() {
 }
 
 impl WindowManager {
+    // public because it is called by the config
+    pub fn add_workspace(&mut self, name: &str, layouts: Vec<LayoutRoot>) {
+        self.workspaces.push(Workspace {
+            name: String::from(name),
+            windows: Default::default(),
+            focused_window: None,
+            layouts,
+            current_layout: 0,
+        })
+    }
+
     // public because it is called by temporary event loops such as the window selector
     pub fn dispatch_wm_event(&mut self, e: &xcb::GenericEvent) {
         match e.response_type() & 0x7f {
@@ -202,16 +176,6 @@ impl WindowManager {
             ],
         );
         connection.flush();
-    }
-
-    fn add_workspace(&mut self, name: &str, layouts: Vec<LayoutRoot>) {
-        self.workspaces.push(Workspace {
-            name: String::from(name),
-            windows: Default::default(),
-            focused_window: None,
-            layouts,
-            current_layout: 0,
-        })
     }
 
     fn process_actions(&mut self, actions: &Vec<Action>) {

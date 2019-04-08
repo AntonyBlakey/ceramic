@@ -1,8 +1,4 @@
-use super::{
-    connection::*,
-    layout::LayoutRect,
-    window_manager::{Commands, WindowManager},
-};
+use super::{commands::Commands, connection::*, layout::LayoutRect, window_manager::WindowManager};
 
 pub struct WindowData {
     pub id: xcb::Window,

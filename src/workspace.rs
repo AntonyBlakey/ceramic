@@ -1,8 +1,6 @@
 use super::{
-    connection::*,
-    layout::*,
-    window_data::WindowData,
-    window_manager::{Commands, WindowManager},
+    commands::Commands, connection::*, layout::*, window_data::WindowData,
+    window_manager::WindowManager,
 };
 
 pub struct Workspace {

@@ -1,8 +1,6 @@
 use super::{
-    artist,
-    connection::*,
-    window_data::WindowData,
-    window_manager::{Commands, WindowManager},
+    artist, commands::Commands, connection::*, window_data::WindowData,
+    window_manager::WindowManager,
 };
 use std::rc::Rc;
 

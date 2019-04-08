@@ -2,6 +2,8 @@
 #![recursion_limit = "128"]
 
 mod artist;
+mod commands;
+mod config;
 mod connection;
 mod layout;
 mod window_data;
