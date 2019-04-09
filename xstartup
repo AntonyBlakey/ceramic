@@ -22,8 +22,8 @@ tigervncconfig -nowin & # Handles C/C/P
 
 # $HOME/.config/commando/launch.sh &
 nitrogen --random --set-scaled $HOME/.config/wallpaper &
+(sleep 4 ; polybar --reload top & ) &
 (sleep 4 ; alacritty & ) &
 (sleep 4 ; alacritty & ) &
 (sleep 4 ; alacritty & ) &
-# $HOME/.config/polybar/launch.sh &
 RUST_BACKTRACE=1 target/debug/ceramic

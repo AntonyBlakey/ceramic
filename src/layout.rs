@@ -1,8 +1,62 @@
 use super::{
-    artist, commands::Commands, connection::*, window_data::WindowData,
+    artist::Artist, commands::Commands, connection::*, window_data::WindowData,
     window_manager::WindowManager,
 };
-use std::rc::Rc;
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Copy)]
+pub struct Position {
+    pub x: i16,
+    pub y: i16,
+}
+
+impl Position {
+    pub const fn new(x: i16, y: i16) -> Position {
+        Position { x, y }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Copy)]
+pub struct Size {
+    pub width: u16,
+    pub height: u16,
+}
+
+impl Size {
+    pub const fn new(width: u16, height: u16) -> Size {
+        Size { width, height }
+    }
+
+    pub fn largest_axis(&self) -> Axis {
+        if self.width > self.height {
+            Axis::X
+        } else {
+            Axis::Y
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Copy)]
+pub struct Bounds {
+    pub origin: Position,
+    pub size: Size,
+}
+
+impl Bounds {
+    pub const fn new(x: i16, y: i16, width: u16, height: u16) -> Bounds {
+        Bounds {
+            origin: Position::new(x, y),
+            size: Size::new(width, height),
+        }
+    }
+
+    pub fn max_x(&self) -> i16 {
+        (self.origin.x as i32 + self.size.width as i32) as i16
+    }
+
+    pub fn max_y(&self) -> i16 {
+        (self.origin.y as i32 + self.size.height as i32) as i16
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Axis {
@@ -11,19 +65,13 @@ pub enum Axis {
 }
 
 impl Axis {
-    pub fn extract_origin<T>(&self, rect: &euclid::Rect<T>) -> T
-    where
-        T: Copy,
-    {
+    pub fn extract_origin(&self, rect: &Bounds) -> i16 {
         match self {
             Axis::X => rect.origin.x,
             Axis::Y => rect.origin.y,
         }
     }
-    pub fn extract_size<T>(&self, rect: &euclid::Rect<T>) -> T
-    where
-        T: Copy,
-    {
+    pub fn extract_size(&self, rect: &Bounds) -> u16 {
         match self {
             Axis::X => rect.size.width,
             Axis::Y => rect.size.height,
@@ -43,25 +91,8 @@ pub enum Direction {
     Decreasing,
 }
 
-pub type LayoutRect = euclid::Rect<u16>;
-
 pub trait Layout: Commands {
-    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action>;
-}
-
-pub enum Action {
-    Decorate {
-        artist: Rc<artist::Artist>,
-    },
-    Stack {
-        windows: Vec<xcb::Window>,
-    },
-    Position {
-        id: xcb::Window,
-        rect: LayoutRect,
-        border_width: u16,
-        border_color: u32,
-    },
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>);
 }
 
 pub fn root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
@@ -69,26 +100,26 @@ pub fn root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
 }
 
 pub fn avoid_struts<A: Layout>(child: A) -> AvoidStruts<A> {
-    AvoidStruts { child: child }
+    AvoidStruts { child }
 }
 
 pub fn ignore_some_windows<A: Layout>(child: A) -> IgnoreSomeWindows<A> {
-    IgnoreSomeWindows { child: child }
+    IgnoreSomeWindows { child }
 }
 
 pub fn add_gaps<A: Layout>(screen_gap: u16, window_gap: u16, child: A) -> AddGaps<A> {
     AddGaps {
         screen_gap,
         window_gap,
-        child: child,
+        child,
     }
 }
 
-pub fn add_focus_border<A: Layout>(width: u16, color: (u8, u8, u8), child: A) -> AddFocusBorder<A> {
+pub fn add_focus_border<A: Layout>(width: u8, color: (u8, u8, u8), child: A) -> AddFocusBorder<A> {
     AddFocusBorder {
         width,
         color,
-        child: child,
+        child,
     }
 }
 
@@ -170,7 +201,15 @@ impl LayoutRoot {
         }
     }
 
-    pub fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
+    pub fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    pub fn layout(
+        &self,
+        rect: &Bounds,
+        windows: &[WindowData],
+    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
         self.child.layout(rect, &windows)
     }
 
@@ -207,17 +246,17 @@ pub struct IgnoreSomeWindows<A: Layout> {
 }
 
 impl<A: Layout> Layout for IgnoreSomeWindows<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
         self.child.layout(
             rect,
             &windows
                 .iter()
                 .filter(|w| {
-                    let window_type = get_atoms_property(w.id, *ATOM__NET_WM_WINDOW_TYPE);
+                    let window_type = get_atoms_property(w.id(), *ATOM__NET_WM_WINDOW_TYPE);
                     !window_type.contains(&*ATOM__NET_WM_WINDOW_TYPE_DOCK)
                 })
-                .map(|&w| w)
-                .collect::<Vec<_>>(),
+                .cloned()
+                .collect::<Vec<WindowData>>(),
         )
     }
 }
@@ -246,24 +285,24 @@ pub struct AvoidStruts<A: Layout> {
 }
 
 impl<A: Layout> Layout for AvoidStruts<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
         let mut r = *rect;
 
         for window in windows {
-            let struts = get_cardinals_property(window.id, *ATOM__NET_WM_STRUT);
+            let struts = get_cardinals_property(window.id(), *ATOM__NET_WM_STRUT);
             if struts.len() == 4 {
-                let left = struts[0] as u16;
-                let right = struts[1] as u16;
-                let top = struts[2] as u16;
-                let bottom = struts[3] as u16;
-                r.origin.x += left;
-                r.size.width -= left + right;
-                r.origin.y += top;
-                r.size.height -= top + bottom;
+                let left = struts[0];
+                let right = struts[1];
+                let top = struts[2];
+                let bottom = struts[3];
+                r.origin.x += left as i16;
+                r.size.width -= (left + right) as u16;
+                r.origin.y += top as i16;
+                r.size.height -= (top + bottom) as u16;
             }
         }
 
-        self.child.layout(&r, &windows)
+        self.child.layout(&r, windows)
     }
 }
 
@@ -293,33 +332,24 @@ pub struct AddGaps<A: Layout> {
 }
 
 impl<A: Layout> Layout for AddGaps<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
-        let mut r = *rect;
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+        let r = Bounds::new(
+            rect.origin.x + self.screen_gap as i16,
+            rect.origin.y + self.screen_gap as i16,
+            rect.size.width - 2 * self.screen_gap,
+            rect.size.height - 2 * self.screen_gap,
+        );
 
-        r.origin.x += self.screen_gap;
-        r.origin.y += self.screen_gap;
-        r.size.width -= 2 * self.screen_gap;
-        r.size.height -= 2 * self.screen_gap;
-        let mut actions = self.child.layout(&r, &windows);
+        let (mut new_windows, artists) = self.child.layout(&r, windows);
 
-        for a in &mut actions {
-            match a {
-                Action::Position {
-                    id: _,
-                    rect,
-                    border_width: _,
-                    border_color: _,
-                } => {
-                    rect.origin.x += self.window_gap;
-                    rect.origin.y += self.window_gap;
-                    rect.size.width -= 2 * self.window_gap;
-                    rect.size.height -= 2 * self.window_gap;
-                }
-                _ => {}
-            }
+        for window in new_windows.iter_mut() {
+            window.bounds.origin.x += self.window_gap as i16;
+            window.bounds.origin.y += self.window_gap as i16;
+            window.bounds.size.width -= 2 * self.window_gap;
+            window.bounds.size.height -= 2 * self.window_gap;
         }
 
-        actions
+        (new_windows, artists)
     }
 }
 
@@ -343,42 +373,30 @@ impl<A: Layout> Commands for AddGaps<A> {
 
 #[derive(Clone)]
 pub struct AddFocusBorder<A: Layout> {
-    width: u16,
+    width: u8,
     color: (u8, u8, u8),
     child: A,
 }
 
 impl<A: Layout> Layout for AddFocusBorder<A> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
-        let mut actions = self.child.layout(rect, windows);
-
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
         let focused_window = xcb::get_input_focus(&connection())
             .get_reply()
             .unwrap()
             .focus();
 
-        let red = self.color.0 as u32;
-        let green = self.color.1 as u32;
-        let blue = self.color.2 as u32;
-        // NOTE: without parens this doesn't do what you expect!
-        let color = (red << 16) + (green << 8) + blue;
+        let (mut new_windows, artists) = self.child.layout(rect, windows);
 
-        for a in &mut actions {
-            match a {
-                Action::Position {
-                    id,
-                    rect: _,
-                    border_width,
-                    border_color,
-                } if *id == focused_window => {
-                    *border_width = self.width;
-                    *border_color = color;
-                }
-                _ => {}
+        for window in new_windows.iter_mut() {
+            if window.id() == focused_window {
+                window.border_width = self.width;
+                window.border_color = self.color;
+            } else {
+                window.border_width = 0;
             }
         }
 
-        actions
+        (new_windows, artists)
     }
 }
 
@@ -405,22 +423,12 @@ struct StackIndicatorArtist {
     window: xcb::Window,
 }
 
-impl artist::Artist for StackIndicatorArtist {
-    fn calculate_bounds(&self, window: xcb::Window) -> Option<LayoutRect> {
+impl Artist for StackIndicatorArtist {
+    fn calculate_bounds(&self, window: xcb::Window) -> Option<Bounds> {
         match xcb::get_geometry(&connection(), self.window).get_reply() {
             Ok(geometry) => Some(match self.axis {
-                Axis::X => euclid::rect(
-                    geometry.x() as u16 - 8,
-                    geometry.y() as u16,
-                    4,
-                    geometry.height(),
-                ),
-                Axis::Y => euclid::rect(
-                    geometry.x() as u16,
-                    geometry.y() as u16 - 8,
-                    geometry.width(),
-                    4,
-                ),
+                Axis::X => Bounds::new(geometry.x() - 8, geometry.y(), 4, geometry.height()),
+                Axis::Y => Bounds::new(geometry.x(), geometry.y() - 8, geometry.width(), 4),
             }),
             _ => None,
         }
@@ -446,37 +454,39 @@ impl artist::Artist for StackIndicatorArtist {
 pub struct StackLayout {}
 
 impl Layout for StackLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
         if windows.is_empty() {
             return Default::default();
         }
 
-        let mut actions = Vec::with_capacity(windows.len() + 1);
-        let mut r = *rect;
+        let axis = rect.size.largest_axis();
 
-        actions.push(Action::Decorate {
-            artist: Rc::new(StackIndicatorArtist {
-                window: windows[0].id,
-                axis: if rect.size.width > rect.size.height {
-                    r.origin.x += 8;
-                    r.size.width -= 8;
-                    Axis::X
-                } else {
-                    r.origin.y += 8;
-                    r.size.height -= 8;
-                    Axis::Y
-                },
-            }),
-        });
+        let artists: Vec<Box<Artist>> = vec![Box::new(StackIndicatorArtist {
+            window: windows[0].id(),
+            axis: axis,
+        })];
 
-        actions.extend(windows.iter().map(|window| Action::Position {
-            id: window.id,
-            rect: r,
-            border_width: 0,
-            border_color: 0,
-        }));
+        let r = match axis {
+            Axis::X => Bounds::new(
+                rect.origin.x + 8,
+                rect.origin.y,
+                rect.size.width - 8,
+                rect.size.height,
+            ),
+            Axis::Y => Bounds::new(
+                rect.origin.x,
+                rect.origin.y + 8,
+                rect.size.width,
+                rect.size.height - 8,
+            ),
+        };
 
-        actions
+        let mut new_windows = windows.to_vec();
+        for window in new_windows.iter_mut() {
+            window.bounds = r;
+        }
+
+        (new_windows, artists)
     }
 }
 
@@ -490,7 +500,7 @@ impl Commands for StackLayout {}
 pub struct GridLayout {}
 
 impl Layout for GridLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
         if windows.is_empty() {
             return Default::default();
         }
@@ -507,26 +517,22 @@ impl Layout for GridLayout {
         let mut row = 0;
         let mut column = 0;
 
-        let w = cell_width - 2 * window_gap;
-        let h = cell_height - 2 * window_gap;
-        windows
-            .iter()
-            .map(|window| {
-                let x = rect.origin.x + screen_gap + cell_width * column + window_gap;
-                let y = rect.origin.y + screen_gap + cell_height * row + window_gap;
-                column += 1;
-                if column == columns {
-                    column = 0;
-                    row += 1;
-                }
-                Action::Position {
-                    id: window.id,
-                    rect: euclid::rect(x, y, w, h),
-                    border_width: 0,
-                    border_color: 0,
-                }
-            })
-            .collect()
+        let width = cell_width - 2 * window_gap;
+        let height = cell_height - 2 * window_gap;
+
+        let mut new_windows = windows.to_vec();
+        for window in new_windows.iter_mut() {
+            let x = rect.origin.x + (screen_gap + cell_width * column + window_gap) as i16;
+            let y = rect.origin.y + (screen_gap + cell_height * row + window_gap) as i16;
+            column += 1;
+            if column == columns {
+                column = 0;
+                row += 1;
+            }
+            window.bounds = Bounds::new(x, y, width, height);
+        }
+
+        (new_windows, Default::default())
     }
 }
 
@@ -546,7 +552,7 @@ pub struct SplitLayout<A, B> {
 }
 
 impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
-    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
         if windows.is_empty() {
             return Default::default();
         }
@@ -575,9 +581,11 @@ impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
 
         if windows.len() > self.count {
             let (w1, w2) = windows.split_at(self.count);
-            let mut result = self.children.0.layout(&rect_1, w1);
-            result.append(&mut self.children.1.layout(&rect_2, w2));
-            result
+            let (mut new_windows, mut artists) = self.children.0.layout(&rect_1, w1);
+            let (mut new_windows_2, mut artists_2) = self.children.1.layout(&rect_2, w2);
+            new_windows.extend(new_windows_2.drain(0..));
+            artists.extend(artists_2.drain(0..));
+            (new_windows, artists)
         } else {
             self.children.0.layout(&rect_1, windows)
         }
@@ -641,45 +649,31 @@ pub struct LinearLayout {
 }
 
 impl Layout for LinearLayout {
-    fn layout(&self, rect: &LayoutRect, windows: &[&WindowData]) -> Vec<Action> {
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
         if windows.is_empty() {
             return Default::default();
         }
 
-        let mut result = Vec::with_capacity(windows.len() + 1);
-
-        result.push(Action::Stack{ windows: windows.iter().map(|w|w.id).collect() });
-
+        let mut new_windows = windows.to_vec();
+        let mut r = *rect;
         match self.axis {
             Axis::X => {
-                let mut r = *rect;
                 r.size.width = r.size.width / windows.len() as u16;
-                for w in windows {
-                    result.push(Action::Position {
-                        id: w.id,
-                        rect: r,
-                        border_width: 0,
-                        border_color: 0,
-                    });
-                    r.origin.x += r.size.width;
+                for window in new_windows.iter_mut() {
+                    window.bounds = r;
+                    r.origin.x += r.size.width as i16;
                 }
             }
             Axis::Y => {
-                let mut r = *rect;
                 r.size.height = r.size.height / windows.len() as u16;
-                for w in windows {
-                    result.push(Action::Position {
-                        id: w.id,
-                        rect: r,
-                        border_width: 0,
-                        border_color: 0,
-                    });
-                    r.origin.y += r.size.height;
+                for window in new_windows.iter_mut() {
+                    window.bounds = r;
+                    r.origin.y += r.size.height as i16;
                 }
             }
-        }
+        };
 
-        result
+        (new_windows, Default::default())
     }
 }
 
@@ -689,7 +683,7 @@ impl Commands for LinearLayout {}
 //------------------------------------------------------------------
 //
 
-// pub type BoxedLayoutPredicate = Box<Fn(&LayoutRect, &[&window::Window]) -> bool>;
+// pub type BoxedLayoutPredicate = Box<Fn(&Bounds, &[&window::Window]) -> bool>;
 
 // #[derive(Clone)]
 // pub struct DynamicLayout<A, B> {
@@ -735,7 +729,7 @@ impl Commands for LinearLayout {}
 // }
 
 // impl<A: Layout, B: Layout> Layout for DynamicLayout<A, B> {
-//     fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+//     fn layout(&self, rect: &Bounds, windows: &[&window::Window], artists: &mut Vec<Box<Artist>>) {
 //         if (self.predicate)(rect, windows) {
 //             self.children.0.layout(rect, windows)
 //         } else {
@@ -748,7 +742,7 @@ impl Commands for LinearLayout {}
 //------------------------------------------------------------------
 //
 
-// pub type BoxedWindowPredicate = Box<Fn(&LayoutRect, usize, &window::Window) -> bool>;
+// pub type BoxedWindowPredicate = Box<Fn(&Bounds, usize, &window::Window) -> bool>;
 
 // #[derive(Clone)]
 // pub struct PredicateSelector<A> {
@@ -781,7 +775,7 @@ impl Commands for LinearLayout {}
 // }
 
 // impl<A: Layout> Layout for PredicateSelector<A> {
-//     fn layout(&self, rect: &LayoutRect, windows: &[&window::Window]) -> Vec<Action> {
+//     fn layout(&self, rect: &Bounds, windows: &[&window::Window], artists: &mut Vec<Box<Artist>>) {
 //         let filtered_windows: Vec<&window::Window> = windows
 //             .iter()
 //             .enumerate()

@@ -1,48 +1,78 @@
-use super::{commands::Commands, connection::*, layout::LayoutRect, window_manager::WindowManager};
+use super::{commands::Commands, connection::*, layout::Bounds, window_manager::WindowManager};
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WindowData {
-    pub id: xcb::Window,
-    pub is_floating: bool,
-    pub floating_frame: Option<LayoutRect>,
+    window: xcb::Window,
+    is_managed: bool,
+    pub bounds: Bounds,
+    pub border_width: u8,
+    pub border_color: (u8, u8, u8),
+    pub selector_label: String,
+    pub leader_window: Option<xcb::Window>,
 }
 
 impl WindowData {
+    pub fn new(window: xcb::Window) -> WindowData {
+        WindowData {
+            window,
+            ..Default::default()
+        }
+    }
+
+    pub fn id(&self) -> xcb::Window {
+        self.window
+    }
+
     pub fn set_input_focus(&self) {
         let connection = connection();
         xcb::set_input_focus(
             &connection,
             xcb::INPUT_FOCUS_NONE as u8,
-            self.id,
+            self.window,
             xcb::CURRENT_TIME,
         );
         let screen = connection.get_setup().roots().nth(0).unwrap();
-        set_window_property(screen.root(), *ATOM__NET_ACTIVE_WINDOW, self.id);
+        set_window_property(screen.root(), *ATOM__NET_ACTIVE_WINDOW, self.window);
     }
 
-    pub fn configure(&self, rect: &LayoutRect, border_width: u16, border_color: u32) {
+    pub fn configure(&self) {
         let connection = connection();
-        if border_width > 0 {
+        if self.border_width > 0 {
             xcb::change_window_attributes(
                 &connection,
-                self.id,
-                &[(xcb::CW_BORDER_PIXEL, border_color)],
+                self.window,
+                &[(
+                    xcb::CW_BORDER_PIXEL,
+                    ((self.border_color.0 as u32) << 16)
+                        | ((self.border_color.1 as u32) << 8)
+                        | self.border_color.2 as u32,
+                )],
             );
         }
         xcb::configure_window(
             &connection,
-            self.id,
+            self.window,
             &[
                 (
                     xcb::CONFIG_WINDOW_X as u16,
-                    (rect.origin.x - border_width) as u32,
+                    (self.bounds.origin.x - self.border_width as i16) as u32,
                 ),
                 (
                     xcb::CONFIG_WINDOW_Y as u16,
-                    (rect.origin.y - border_width) as u32,
+                    (self.bounds.origin.y - self.border_width as i16) as u32,
                 ),
-                (xcb::CONFIG_WINDOW_WIDTH as u16, rect.size.width as u32),
-                (xcb::CONFIG_WINDOW_HEIGHT as u16, rect.size.height as u32),
-                (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, border_width as u32),
+                (
+                    xcb::CONFIG_WINDOW_WIDTH as u16,
+                    self.bounds.size.width as u32,
+                ),
+                (
+                    xcb::CONFIG_WINDOW_HEIGHT as u16,
+                    self.bounds.size.height as u32,
+                ),
+                (
+                    xcb::CONFIG_WINDOW_BORDER_WIDTH as u16,
+                    self.border_width as u32,
+                ),
             ],
         );
     }
@@ -60,7 +90,7 @@ impl Commands for WindowData {
     ) -> Option<Box<Fn(&mut WindowManager)>> {
         match command {
             "close_focused_window" => {
-                xcb::kill_client(&connection(), self.id);
+                xcb::kill_client(&connection(), self.window);
                 None
             }
             _ => {

@@ -1,12 +1,17 @@
-use super::{layout::*, window_manager::WindowManager};
+use super::{
+    layout::*, window_manager::WindowManager, window_selector::add_window_selector_labels,
+};
+use std::{cell::RefCell, rc::Rc};
 
 pub fn configure(wm: &mut WindowManager) {
     for i in 1..=9 {
-        wm.add_workspace(&format!("{}", i), layouts());
+        // wm.add_workspace(&format!("{}", i), layouts(&wm.window_selector_running));
+        wm.add_workspace(&format!("{}", i), layouts(wm));
     }
 }
 
-fn layouts() -> Vec<LayoutRoot> {
+// fn layouts(window_selector_is_running: &Rc<RefCell<bool>>) -> Vec<LayoutRoot> {
+fn layouts(wm: &WindowManager) -> Vec<LayoutRoot> {
     vec![
         // standard_layout_root(
         //     "monad_tall_right_stack",
@@ -14,19 +19,31 @@ fn layouts() -> Vec<LayoutRoot> {
         // ),
         standard_layout_root(
             "monad_tall_right",
+            wm,
             monad(Direction::Decreasing, Axis::X, 0.75, 1),
         ),
         standard_layout_root(
             "monad_wide_top",
+            wm,
             monad(Direction::Increasing, Axis::Y, 0.75, 1),
         ),
     ]
 }
 
-fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> LayoutRoot {
-    let add_focus_border = add_focus_border(1, (0, 255, 0), child);
-    let add_gaps = add_gaps(5, 5, add_focus_border);
-    let ignore_some_windows = ignore_some_windows(add_gaps);
-    let avoid_struts = avoid_struts(ignore_some_windows);
-    root(name, avoid_struts)
+fn standard_layout_root<A: Layout + 'static>(
+    name: &str,
+    wm: &WindowManager,
+    child: A,
+) -> LayoutRoot {
+    root(
+        name,
+        add_window_selector_labels(
+            wm.window_selector_running.clone(),
+            avoid_struts(ignore_some_windows(add_gaps(
+                5,
+                5,
+                add_focus_border(1, (0, 255, 0), child),
+            ))),
+        ),
+    )
 }

@@ -1,4 +1,4 @@
-use super::window_manager;
+use super::window_manager::WindowManager;
 
 pub trait Commands {
     fn get_commands(&self) -> Vec<String> {
@@ -8,7 +8,7 @@ pub trait Commands {
         &mut self,
         command: &str,
         _args: &[&str],
-    ) -> Option<Box<Fn(&mut window_manager::WindowManager)>> {
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
         eprintln!("Unhandled command: {}", command);
         None
     }

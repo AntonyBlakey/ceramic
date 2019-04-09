@@ -5,11 +5,12 @@ use std::rc::Rc;
 static mut CONNECTION: Option<Rc<xcb::Connection>> = None;
 pub fn connection() -> Rc<xcb::Connection> {
     unsafe {
-        if CONNECTION.is_none() {
-            let (connection, _screen_number) = xcb::Connection::connect(None).unwrap();
-            CONNECTION = Some(Rc::new(connection));
-        }
-        CONNECTION.clone().unwrap()
+        CONNECTION
+            .get_or_insert_with(|| {
+                let (connection, _screen_number) = xcb::Connection::connect(None).unwrap();
+                Rc::new(connection)
+            })
+            .clone()
     }
 }
 

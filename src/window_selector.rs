@@ -1,199 +1,70 @@
-use super::{artist, connection::*, layout::*, window_manager};
-use std::{collections::HashMap, rc::Rc};
+use super::{
+    artist::Artist, commands::Commands, connection::*, layout::*, window_data::WindowData,
+    window_manager::WindowManager,
+};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-#[derive(Default)]
-struct WindowSelectorArtist {
-    windows: Vec<xcb::Window>,
+pub fn add_window_selector_labels<A: Layout>(
+    is_enabled: Rc<RefCell<bool>>,
+    child: A,
+) -> AddWindowSelectorLabels<A> {
+    AddWindowSelectorLabels { is_enabled, child }
 }
 
-struct Point {
-    x: u16,
-    y: u16,
+pub struct AddWindowSelectorLabels<A: Layout> {
+    is_enabled: Rc<RefCell<bool>>,
+    child: A,
 }
 
-impl WindowSelectorArtist {
-    const FONT_FACE: &'static str = "Noto Sans Mono";
-    const FONT_SIZE: u16 = 12;
+impl<A: Layout> Layout for AddWindowSelectorLabels<A> {
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+        if !*self.is_enabled.borrow() {
+            return self.child.layout(rect, windows);
+        }
 
-    const MARGIN: Point = Point { x: 4, y: 4 };
-    const LABEL_PADDING: Point = Point { x: 4, y: 1 };
-    const LABEL_TO_NAME_GAP: u16 = 6;
-    const LINE_SPACING: u16 = 2;
+        let (mut new_windows, mut artists) = self.child.layout(rect, windows);
 
-    fn configure_label_font(&self, context: &cairo::Context) {
-        context.select_font_face(
-            Self::FONT_FACE,
-            cairo::FontSlant::Normal,
-            cairo::FontWeight::Bold,
+        // TODO: allow choice of preserve or refresh label assignment policy
+
+        let selector_chars = "ASDFGHJKLQWERTYUIOPZXCVBNM1234567890".chars();
+        let mut selector_artists: HashMap<xcb::Window, WindowSelectorArtist> = HashMap::new();
+        for (w, c) in new_windows.iter_mut().zip(selector_chars) {
+            w.selector_label = format!("{}", c);
+            let leader = w.leader_window.unwrap_or(w.id());
+            let artist = selector_artists.entry(leader).or_default();
+            artist.windows.push((w.selector_label.clone(), w.id()));
+        }
+
+        artists.extend(
+            selector_artists
+                .drain()
+                .map(|(_, artist)| Box::new(artist) as Box<Artist>),
         );
-        context.set_font_size(Self::FONT_SIZE as f64);
-    }
 
-    fn configure_name_font(&self, context: &cairo::Context) {
-        context.select_font_face(
-            Self::FONT_FACE,
-            cairo::FontSlant::Normal,
-            cairo::FontWeight::Normal,
-        );
-        context.set_font_size(Self::FONT_SIZE as f64);
+        (new_windows, artists)
     }
 }
 
-impl artist::Artist for WindowSelectorArtist {
-    fn calculate_bounds(&self, window: xcb::Window) -> Option<LayoutRect> {
-        let connection = connection();
-        if let Ok(geometry) = xcb::get_geometry(&connection, self.windows[0]).get_reply() {
-            if let Ok(surface) = get_cairo_surface(window) {
-                let context = cairo::Context::new(&surface);
-
-                self.configure_label_font(&context);
-                let font_extents = context.font_extents();
-                let line_height = font_extents.height.ceil() as u16;
-
-                let mut label_width = 0;
-                let mut name_width = 0;
-                for window in &self.windows {
-                    self.configure_label_font(&context);
-                    let label = get_string_property(*window, *ATOM_CERAMIC_SELECTOR_LABEL);
-                    let text_extents = context.text_extents(&label);
-                    label_width = label_width.max(text_extents.width.ceil() as u16);
-                    self.configure_name_font(&context);
-                    let name = get_string_property(*window, *ATOM__NET_WM_NAME);
-                    let text_extents = context.text_extents(&name);
-                    name_width = name_width.max(text_extents.width.ceil() as u16);
-                }
-
-                return Some(euclid::rect(
-                    geometry.x() as u16,
-                    geometry.y() as u16,
-                    Self::MARGIN.x
-                        + Self::LABEL_PADDING.x
-                        + label_width
-                        + Self::LABEL_PADDING.x
-                        + Self::LABEL_TO_NAME_GAP
-                        + name_width
-                        + Self::MARGIN.x,
-                    Self::MARGIN.y
-                        + self.windows.len() as u16
-                            * (Self::LABEL_PADDING.y
-                                + line_height
-                                + Self::LABEL_PADDING.y
-                                + Self::LINE_SPACING)
-                        - Self::LINE_SPACING
-                        + Self::MARGIN.y,
-                ));
-            }
-        }
-
-        None
+impl<A: Layout> Commands for AddWindowSelectorLabels<A> {
+    fn get_commands(&self) -> Vec<String> {
+        self.child.get_commands()
     }
 
-    fn draw(&self, window: xcb::Window) {
-        if let Ok(surface) = get_cairo_surface(window) {
-            let context = cairo::Context::new(&surface);
-
-            self.configure_label_font(&context);
-            let font_extents = context.font_extents();
-            let line_height = font_extents.height.ceil() as u16;
-            let ascent = font_extents.ascent;
-
-            let mut label_width = 0;
-            for window in &self.windows {
-                let label = get_string_property(*window, *ATOM_CERAMIC_SELECTOR_LABEL);
-                let text_extents = context.text_extents(&label);
-                label_width = label_width.max(text_extents.width.ceil() as u16);
-            }
-
-            let focused_window = xcb::get_input_focus(&connection()).get_reply();
-            {
-                let mut top = Self::MARGIN.y;
-                let label_left = Self::MARGIN.x;
-                let label_right =
-                    label_left + Self::LABEL_PADDING.x + label_width + Self::LABEL_PADDING.x;
-                let name_left = label_right + Self::LABEL_TO_NAME_GAP;
-                for window in &self.windows {
-                    let bottom = top + Self::LABEL_PADDING.y + line_height + Self::LABEL_PADDING.y;
-
-                    match &focused_window {
-                        Ok(w) if w.focus() == *window => context.set_source_rgb(0.0, 0.6, 0.0),
-                        _ => context.set_source_rgb(0.0, 0.3, 0.6),
-                    }
-
-                    context.move_to(label_left as f64, top as f64);
-                    context.line_to(label_right as f64, top as f64);
-                    context.line_to(label_right as f64, bottom as f64);
-                    context.line_to(label_left as f64, bottom as f64);
-                    context.close_path();
-                    context.fill();
-
-                    context.move_to(
-                        name_left as f64,
-                        (top + Self::LABEL_PADDING.y) as f64 + ascent,
-                    );
-                    self.configure_name_font(&context);
-                    let name = get_string_property(*window, *ATOM__NET_WM_NAME);
-                    context.show_text(&name);
-
-                    context.set_source_rgb(1.0, 1.0, 1.0);
-                    context.move_to(
-                        (label_left + Self::LABEL_PADDING.x) as f64,
-                        (top + Self::LABEL_PADDING.y) as f64 + ascent,
-                    );
-                    self.configure_label_font(&context);
-                    let label = get_string_property(*window, *ATOM_CERAMIC_SELECTOR_LABEL);
-                    context.show_text(&label);
-
-                    top = bottom + Self::LINE_SPACING;
-                }
-            }
-        }
+    fn execute_command(
+        &mut self,
+        command: &str,
+        args: &[&str],
+    ) -> Option<Box<Fn(&mut WindowManager)>> {
+        self.child.execute_command(command, args)
     }
 }
 
-pub fn add_actions(actions: &mut Vec<Action>) {
-    let mut selector_chars = "ASDFGHJKLQWERTYUIOPZXCVBNM1234567890".chars();
-    let mut selector_artists: HashMap<xcb::Window, WindowSelectorArtist> = HashMap::new();
-    let mut stack_leaders: HashMap<xcb::Window, xcb::Window> = HashMap::new();
-    for action in actions.iter() {
-        match action {
-            Action::Stack { windows } => {
-                // TODO: set window ordering
-                let mut i = windows.iter();
-                if let Some(leader) = i.next() {
-                    for window in i {
-                        stack_leaders.insert(*window, *leader);
-                    }
-                }
-            }
-            Action::Position {
-                id,
-                rect: _,
-                border_width: _,
-                border_color: _,
-            } => match selector_chars.next() {
-                Some(c) => {
-                    let label = format!("{}", c);
-                    set_string_property(*id, *ATOM_CERAMIC_SELECTOR_LABEL, &label);
-                    let leader = stack_leaders.get(id).unwrap_or(id);
-                    let artist = selector_artists.entry(*leader).or_default();
-                    artist.windows.push(*id);
-                }
-                None => {}
-            },
-            _ => (),
-        }
-    }
-
-    for (_, artist) in selector_artists {
-        actions.push(Action::Decorate {
-            artist: Rc::new(artist),
-        });
-    }
-}
-
-pub fn run(wm: &mut window_manager::WindowManager) -> Option<xcb::Window> {
+pub fn run<F>(fallback_dispatcher: &mut F) -> Option<String>
+where
+    F: FnMut(&xcb::GenericEvent),
+{
     let mut key_press_count = 0;
-    let mut selected_window: Option<xcb::Window> = None;
+    let mut selected_label: Option<String> = None;
     grab_keyboard();
     allow_events();
     let connection = connection();
@@ -206,23 +77,13 @@ pub fn run(wm: &mut window_manager::WindowManager) -> Option<xcb::Window> {
                     let keycode = press_event.detail();
                     let keysym = key_symbols.get_keysym(keycode, 0);
                     if keysym != xcb::base::NO_SYMBOL {
-                        let key_string = unsafe {
+                        let cstr = unsafe {
                             std::ffi::CStr::from_ptr(x11::xlib::XKeysymToString(keysym.into()))
-                                .to_str()
-                                .unwrap()
-                                .to_uppercase()
                         };
-                        selected_window = wm.workspaces[wm.current_workspace]
-                            .windows
-                            .iter()
-                            .find(|w| {
-                                get_string_property(w.id, *ATOM_CERAMIC_SELECTOR_LABEL)
-                                    == key_string
-                            })
-                            .map(|w| w.id)
+                        selected_label = cstr.to_str().ok().map(|s| s.to_owned().to_uppercase());
                     }
                 } else {
-                    selected_window = None;
+                    selected_label = None;
                 }
                 key_press_count += 1;
             }
@@ -233,14 +94,14 @@ pub fn run(wm: &mut window_manager::WindowManager) -> Option<xcb::Window> {
                 }
             }
             _ => {
-                wm.dispatch_wm_event(&e);
+                fallback_dispatcher(&e);
             }
         }
         allow_events();
     }
     ungrab_keyboard();
     allow_events();
-    selected_window
+    selected_label
 }
 
 fn grab_keyboard() {
@@ -276,4 +137,148 @@ fn allow_events() {
         xcb::CURRENT_TIME,
     );
     connection.flush();
+}
+
+#[derive(Default)]
+struct WindowSelectorArtist {
+    windows: Vec<(String, xcb::Window)>,
+}
+
+impl WindowSelectorArtist {
+    const FONT_FACE: &'static str = "Noto Sans Mono";
+    const FONT_SIZE: u16 = 12;
+
+    const MARGIN: Size = Size::new(6, 4);
+    const LABEL_PADDING: Size = Size::new(4, 1);
+    const LABEL_TO_NAME_GAP: u16 = 6;
+    const LINE_SPACING: u16 = 3;
+
+    fn configure_label_font(&self, context: &cairo::Context) {
+        context.select_font_face(
+            Self::FONT_FACE,
+            cairo::FontSlant::Normal,
+            cairo::FontWeight::Bold,
+        );
+        context.set_font_size(Self::FONT_SIZE as f64);
+    }
+
+    fn configure_name_font(&self, context: &cairo::Context) {
+        context.select_font_face(
+            Self::FONT_FACE,
+            cairo::FontSlant::Normal,
+            cairo::FontWeight::Normal,
+        );
+        context.set_font_size(Self::FONT_SIZE as f64);
+    }
+}
+
+impl Artist for WindowSelectorArtist {
+    fn calculate_bounds(&self, window: xcb::Window) -> Option<Bounds> {
+        let connection = connection();
+        if let Ok(geometry) = xcb::get_geometry(&connection, self.windows[0].1).get_reply() {
+            if let Ok(surface) = get_cairo_surface(window) {
+                let context = cairo::Context::new(&surface);
+
+                self.configure_label_font(&context);
+                let font_extents = context.font_extents();
+                let line_height = font_extents.height.ceil() as u16;
+
+                let mut label_width = 0;
+                let mut name_width = 0;
+                for (label, window) in &self.windows {
+                    self.configure_label_font(&context);
+                    let text_extents = context.text_extents(&label);
+                    label_width = label_width.max(text_extents.width.ceil() as u16);
+                    self.configure_name_font(&context);
+                    let name = get_string_property(*window, *ATOM__NET_WM_NAME);
+                    let text_extents = context.text_extents(&name);
+                    name_width = name_width.max(text_extents.width.ceil() as u16);
+                }
+
+                return Some(Bounds::new(
+                    geometry.x(),
+                    geometry.y(),
+                    Self::MARGIN.width
+                        + Self::LABEL_PADDING.width
+                        + label_width
+                        + Self::LABEL_PADDING.width
+                        + Self::LABEL_TO_NAME_GAP
+                        + name_width
+                        + Self::MARGIN.width,
+                    Self::MARGIN.height
+                        + self.windows.len() as u16
+                            * (Self::LABEL_PADDING.height
+                                + line_height
+                                + Self::LABEL_PADDING.height
+                                + Self::LINE_SPACING)
+                        - Self::LINE_SPACING
+                        + Self::MARGIN.height,
+                ));
+            }
+        }
+
+        None
+    }
+
+    fn draw(&self, window: xcb::Window) {
+        if let Ok(surface) = get_cairo_surface(window) {
+            let context = cairo::Context::new(&surface);
+
+            self.configure_label_font(&context);
+            let font_extents = context.font_extents();
+            let line_height = font_extents.height.ceil() as u16;
+            let ascent = font_extents.ascent;
+
+            let mut label_width = 0;
+            for (label, window) in &self.windows {
+                let text_extents = context.text_extents(&label);
+                label_width = label_width.max(text_extents.width.ceil() as u16);
+            }
+
+            let focused_window = xcb::get_input_focus(&connection()).get_reply();
+            {
+                let mut top = Self::MARGIN.height;
+                let label_left = Self::MARGIN.width;
+                let label_right = label_left
+                    + Self::LABEL_PADDING.width
+                    + label_width
+                    + Self::LABEL_PADDING.width;
+                let name_left = label_right + Self::LABEL_TO_NAME_GAP;
+                for (label, window) in &self.windows {
+                    let bottom =
+                        top + Self::LABEL_PADDING.height + line_height + Self::LABEL_PADDING.height;
+
+                    match &focused_window {
+                        Ok(w) if w.focus() == *window => context.set_source_rgb(0.0, 0.6, 0.0),
+                        _ => context.set_source_rgb(0.0, 0.3, 0.6),
+                    }
+
+                    context.move_to(label_left as f64, top as f64);
+                    context.line_to(label_right as f64, top as f64);
+                    context.line_to(label_right as f64, bottom as f64);
+                    context.line_to(label_left as f64, bottom as f64);
+                    context.close_path();
+                    context.fill();
+
+                    context.move_to(
+                        name_left as f64,
+                        (top + Self::LABEL_PADDING.height) as f64 + ascent,
+                    );
+                    self.configure_name_font(&context);
+                    let name = get_string_property(*window, *ATOM__NET_WM_NAME);
+                    context.show_text(&name);
+
+                    context.set_source_rgb(1.0, 1.0, 1.0);
+                    context.move_to(
+                        (label_left + Self::LABEL_PADDING.width) as f64,
+                        (top + Self::LABEL_PADDING.height) as f64 + ascent,
+                    );
+                    self.configure_label_font(&context);
+                    context.show_text(&label);
+
+                    top = bottom + Self::LINE_SPACING;
+                }
+            }
+        }
+    }
 }

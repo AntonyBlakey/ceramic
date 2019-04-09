@@ -1,15 +1,15 @@
 use super::{
-    artist, commands::Commands, config, connection::*, layout::*, window_selector,
+    artist::Artist, commands::Commands, config, connection::*, layout::*, window_selector,
     workspace::Workspace,
 };
-use std::{collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 #[derive(Default)]
 pub struct WindowManager {
     pub workspaces: Vec<Workspace>,
     pub current_workspace: usize,
-    decorations: HashMap<xcb::Window, Rc<artist::Artist>>,
-    show_window_selectors: bool,
+    pub window_selector_running: Rc<RefCell<bool>>,
+    decorations: HashMap<xcb::Window, Box<Artist>>,
 }
 
 pub fn run() {
@@ -68,9 +68,7 @@ impl WindowManager {
                 if e.atom() == *ATOM_CERAMIC_COMMAND && e.state() == xcb::PROPERTY_NEW_VALUE as u8 {
                     let command = get_string_property(e.window(), e.atom());
                     xcb::delete_property(&connection(), e.window(), e.atom());
-                    if !self.show_window_selectors {
-                        self.parse_and_dispatch_command(command.as_str());
-                    }
+                    self.parse_and_dispatch_command(command.as_str());
                 }
             }
 
@@ -109,11 +107,8 @@ impl WindowManager {
 
     // public because it is called by the command result functions
     pub fn update_layout(&mut self) {
-        let mut actions = self.workspaces[self.current_workspace].update_layout();
-        if self.show_window_selectors {
-            window_selector::add_actions(&mut actions);
-        }
-        self.process_layout_actions(&actions);
+        let artists = self.workspaces[self.current_workspace].update_layout();
+        self.update_decorators(artists);
         self.update_available_commands();
     }
 
@@ -178,7 +173,7 @@ impl WindowManager {
         connection.flush();
     }
 
-    fn process_layout_actions(&mut self, actions: &Vec<Action>) {
+    fn update_decorators(&mut self, artists: Vec<Box<Artist>>) {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let root = screen.root();
@@ -197,45 +192,40 @@ impl WindowManager {
         }
         self.decorations.clear();
 
-        for action in actions {
-            match action {
-                Action::Decorate { artist } => {
-                    let new_id = connection.generate_id();
-                    xcb::create_window(
+        for artist in artists {
+            let new_id = connection.generate_id();
+            xcb::create_window(
+                &connection,
+                xcb::COPY_FROM_PARENT as u8,
+                new_id,
+                root,
+                -1,
+                -1,
+                1,
+                1,
+                0,
+                xcb::WINDOW_CLASS_INPUT_OUTPUT as u16,
+                root_visual,
+                &values,
+            );
+            match artist.calculate_bounds(new_id) {
+                Some(bounds) => {
+                    xcb::configure_window(
                         &connection,
-                        xcb::COPY_FROM_PARENT as u8,
                         new_id,
-                        root,
-                        -1,
-                        -1,
-                        1,
-                        1,
-                        0,
-                        xcb::WINDOW_CLASS_INPUT_OUTPUT as u16,
-                        root_visual,
-                        &values,
+                        &[
+                            (xcb::CONFIG_WINDOW_X as u16, bounds.origin.x as u32),
+                            (xcb::CONFIG_WINDOW_Y as u16, bounds.origin.y as u32),
+                            (xcb::CONFIG_WINDOW_WIDTH as u16, bounds.size.width as u32),
+                            (xcb::CONFIG_WINDOW_HEIGHT as u16, bounds.size.height as u32),
+                        ],
                     );
-                    match artist.calculate_bounds(new_id) {
-                        Some(bounds) => {
-                            xcb::configure_window(
-                                &connection,
-                                new_id,
-                                &[
-                                    (xcb::CONFIG_WINDOW_X as u16, bounds.origin.x as u32),
-                                    (xcb::CONFIG_WINDOW_Y as u16, bounds.origin.y as u32),
-                                    (xcb::CONFIG_WINDOW_WIDTH as u16, bounds.size.width as u32),
-                                    (xcb::CONFIG_WINDOW_HEIGHT as u16, bounds.size.height as u32),
-                                ],
-                            );
-                            xcb::map_window(&connection, new_id);
-                            self.decorations.insert(new_id, artist.clone());
-                        }
-                        None => {
-                            xcb::destroy_window(&connection, new_id);
-                        }
-                    }
+                    xcb::map_window(&connection, new_id);
+                    self.decorations.insert(new_id, artist);
                 }
-                _ => {}
+                None => {
+                    xcb::destroy_window(&connection, new_id);
+                }
             }
         }
     }
@@ -255,24 +245,43 @@ impl WindowManager {
     }
 
     fn parse_and_dispatch_command(&mut self, command_string: &str) {
+        if *self.window_selector_running.borrow() {
+            return;
+        }
+
         let mut tokens = command_string.split(' ');
         if let Some(command) = tokens.next() {
-            let mut args = Vec::new();
-            for token in tokens {
-                match token {
+            if let Ok(args) = tokens
+                .map(|token| match token {
                     "{window}" => {
-                        self.show_window_selectors = true;
+                        // Show the decorations
+                        *self.window_selector_running.borrow_mut() = true;
                         self.update_layout();
-                        let selected_window = window_selector::run(self);
-                        self.show_window_selectors = false;
+
+                        // Run the event loop
+                        let selected_label =
+                            window_selector::run(&mut |e| self.dispatch_wm_event(e));
+
+                        // Hide the decorations
+                        *self.window_selector_running.borrow_mut() = false;
                         self.update_layout();
-                        match selected_window {
-                            Some(window) => args.push(format!("{}", window)),
-                            None => return,
-                        }
+
+                        // Find the selected window
+                        selected_label
+                            .and_then(|label| {
+                                self.workspaces[self.current_workspace]
+                                    .windows
+                                    .iter()
+                                    .find(|w| w.selector_label == label)
+                                    .map(|w| format!("{}", w.id()))
+                            })
+                            .ok_or(())
                     }
-                    _ => args.push(token.to_owned()),
-                }
+                    _ => Ok(token.to_owned()),
+                })
+                .collect::<Result<Vec<String>, ()>>()
+            {
+                eprintln!("execute command: {} {:?}", command, args);
                 match self.execute_command(
                     command,
                     &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),

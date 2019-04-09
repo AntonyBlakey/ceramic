@@ -1,5 +1,5 @@
 use super::{
-    commands::Commands, connection::*, layout::*, window_data::WindowData,
+    artist::Artist, commands::Commands, connection::*, layout::*, window_data::WindowData,
     window_manager::WindowManager,
 };
 
@@ -13,11 +13,7 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn add_window(&mut self, window: xcb::Window) {
-        let data = WindowData {
-            id: window,
-            is_floating: false,
-            floating_frame: None,
-        };
+        let data = WindowData::new(window);
         match self.focused_window {
             Some(index) => {
                 self.windows.insert(index, data);
@@ -31,7 +27,7 @@ impl Workspace {
     }
 
     pub fn remove_window(&mut self, window: xcb::Window) {
-        if let Some(pos) = self.windows.iter().position(|w| w.id == window) {
+        if let Some(pos) = self.windows.iter().position(|w| w.id() == window) {
             self.windows.remove(pos);
             if self.windows.is_empty() {
                 self.set_focused_window(None)
@@ -51,32 +47,23 @@ impl Workspace {
         }
     }
 
-    pub fn update_layout(&mut self) -> Vec<Action> {
+    pub fn update_layout(&mut self) -> Vec<Box<Artist>> {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
-        let windows = self.windows.iter().collect::<Vec<&WindowData>>();
-        let actions = self.layouts[self.current_layout].layout(
-            &euclid::rect(0, 0, screen.width_in_pixels(), screen.height_in_pixels()),
-            &windows,
+        let (windows, artists) = self.layouts[self.current_layout].layout(
+            &Bounds::new(0, 0, screen.width_in_pixels(), screen.height_in_pixels()),
+            &self.windows,
         );
 
-        for a in &actions {
-            match a {
-                Action::Position {
-                    id,
-                    rect,
-                    border_width,
-                    border_color,
-                } => {
-                    if let Some(pos) = self.windows.iter().position(|w| w.id == *id) {
-                        self.windows[pos].configure(rect, *border_width, *border_color);
-                    }
-                }
-                _ => (),
-            }
+        // TODO: only configure changed windows
+
+        self.windows = windows;
+
+        for window in &self.windows {
+            window.configure();
         }
 
-        actions
+        artists
     }
 
     fn set_focused_window(&mut self, w: Option<usize>) {
@@ -103,18 +90,22 @@ impl Commands for Workspace {
             if let Some(index) = self.focused_window {
                 // TODO: this should be the count of floating vs. non-floating *focusable* windows
                 if self.windows.len() > 1 {
-                    commands.push(String::from("move_focus_to_window:"));
+                    // commands.push(String::from("move_to_head_after_focusing_on_window:"));
+                    commands.push(String::from("focus_on_window:"));
                     commands.push(String::from("move_focused_window_to_head"));
                     commands.push(String::from("move_focused_window_forward"));
                     commands.push(String::from("move_focused_window_backward"));
-                    commands.push(String::from("move_focus_to_next_window"));
-                    commands.push(String::from("move_focus_to_previous_window"));
-                    commands.push(String::from("move_focused_window_to_position_of_window:"));
-                    commands.push(String::from("swap_focused_window_with_window:"));
+                    commands.push(String::from("focus_on_next_window"));
+                    commands.push(String::from("focus_on_previous_window"));
+                    // commands.push(String::from("move_focused_window_to_position_of_window:"));
+                    // commands.push(String::from("swap_focused_window_with_window:"));
                 }
                 commands.extend(self.windows[index].get_commands().into_iter());
             } else {
-                commands.push(String::from("move_focus_to_window:"));
+                commands.push(String::from("focus_on_window:"));
+                // if self.windows.len() > 1 {
+                //     commands.push(String::from("move_to_head_after_focusing_on_window:"));
+                // }
             }
         }
         commands
@@ -129,11 +120,29 @@ impl Commands for Workspace {
             self.layouts[self.current_layout].execute_command(command.split_at(7).1, args)
         } else {
             match command {
-                "switch_to_next_layout" => None,
-                "switch_to_previous_layout" => None,
-                "switch_to_layout_named:" => None,
-                "move_focus_to_window:" => match args[0].parse::<u32>() {
-                    Ok(window) => match self.windows.iter().position(|w| w.id == window) {
+                "switch_to_next_layout" => {
+                    eprintln!("switch to next layout");
+                    self.current_layout = (self.current_layout + 1) % self.layouts.len();
+                    Some(Box::new(|w| w.update_layout()))
+                }
+                "switch_to_previous_layout" => {
+                    eprintln!("switch to previous layout");
+                    self.current_layout =
+                        (self.current_layout - 1 + self.layouts.len()) % self.layouts.len();
+                    Some(Box::new(|w| w.update_layout()))
+                }
+                "switch_to_layout_named:" => {
+                    eprintln!("switch to layout named: {}", args[0]);
+                    match self.layouts.iter().position(|l| l.name() == args[0]) {
+                        Some(index) => {
+                            self.current_layout = index;
+                            Some(Box::new(|w| w.update_layout()))
+                        }
+                        None => None,
+                    }
+                }
+                "focus_on_window:" => match args[0].parse::<u32>() {
+                    Ok(window) => match self.windows.iter().position(|w| w.id() == window) {
                         Some(index) => {
                             self.set_focused_window(Some(index));
                             Some(Box::new(|w| w.update_layout()))
@@ -183,8 +192,8 @@ impl Commands for Workspace {
                                 self.set_focused_window(Some(new_index));
                                 Some(Box::new(|w| w.update_layout()))
                             }
-                            "move_focused_window_to_position_of_window:" => None,
-                            "swap_focused_window_with_window:" => None,
+                            // "move_focused_window_to_position_of_window:" => None,
+                            // "swap_focused_window_with_window:" => None,
                             _ => self.windows[index].execute_command(command, args),
                         }
                     }
