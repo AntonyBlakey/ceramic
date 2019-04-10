@@ -1,6 +1,5 @@
 use crate::{
     artist::Artist, commands::Commands, connection::*, layout::*, window_data::WindowData,
-    window_manager::WindowManager,
 };
 use std::collections::HashMap;
 

@@ -1,6 +1,5 @@
 use crate::{
     artist::Artist, commands::Commands, layout::*, window_data::WindowData,
-    window_manager::WindowManager,
 };
 
 pub fn new<A: Layout>(screen_gap: u16, window_gap: u16, child: A) -> AddGaps<A> {

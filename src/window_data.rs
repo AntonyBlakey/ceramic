@@ -1,8 +1,9 @@
-use super::{commands::Commands, connection::*, layout::Bounds, window_manager::WindowManager};
+use super::{commands::Commands, connection::*, layout::Bounds};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WindowData {
     window: xcb::Window,
+    pub is_floating: bool,
     pub bounds: Bounds,
     pub border_width: u8,
     pub border_color: (u8, u8, u8),

@@ -1,6 +1,6 @@
 use super::{
     artist::Artist, commands::Commands, connection::*, layout::layout_root::LayoutRoot, layout::*,
-    window_data::WindowData, window_manager::WindowManager,
+    window_data::WindowData,
 };
 
 pub struct Workspace {
@@ -45,7 +45,7 @@ impl Workspace {
         return true;
     }
 
-    pub fn notify_window_unmapped(&mut self, window: xcb::Window) -> bool {
+    pub fn notify_window_unmapped(&mut self, _window: xcb::Window) -> bool {
         return false;
     }
 

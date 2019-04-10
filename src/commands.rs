@@ -1,5 +1,3 @@
-use super::window_manager::WindowManager;
-
 pub trait Commands {
     fn get_commands(&self) -> Vec<String> {
         Default::default()

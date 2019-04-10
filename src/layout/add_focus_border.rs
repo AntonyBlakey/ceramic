@@ -1,6 +1,5 @@
 use crate::{
     artist::Artist, commands::Commands, connection::*, layout::*, window_data::WindowData,
-    window_manager::WindowManager,
 };
 
 pub fn new<A: Layout>(width: u8, color: (u8, u8, u8), child: A) -> AddFocusBorder<A> {

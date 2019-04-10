@@ -1,6 +1,5 @@
 use crate::{
     artist::Artist, commands::Commands, layout::*, window_data::WindowData,
-    window_manager::WindowManager,
 };
 
 pub fn new<A: Layout, B: Layout>(
