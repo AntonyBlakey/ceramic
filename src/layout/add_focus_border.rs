@@ -49,11 +49,7 @@ impl<A: Layout> Commands for AddFocusBorder<A> {
         self.child.get_commands()
     }
 
-    fn execute_command(
-        &mut self,
-        command: &str,
-        args: &[&str],
-    ) -> Option<Box<Fn(&mut WindowManager)>> {
+    fn execute_command(&mut self, command: &str, args: &[&str]) -> bool {
         self.child.execute_command(command, args)
     }
 }

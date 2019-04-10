@@ -3,7 +3,6 @@ use super::{commands::Commands, connection::*, layout::Bounds, window_manager::W
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WindowData {
     window: xcb::Window,
-    pub is_managed: bool,
     pub bounds: Bounds,
     pub border_width: u8,
     pub border_color: (u8, u8, u8),
@@ -13,29 +12,14 @@ pub struct WindowData {
 
 impl WindowData {
     pub fn new(window: xcb::Window) -> WindowData {
-        let window_type = get_atoms_property(window, *ATOM__NET_WM_WINDOW_TYPE);
-        let is_managed = !window_type.contains(&*ATOM__NET_WM_WINDOW_TYPE_DOCK);
         WindowData {
             window,
-            is_managed,
             ..Default::default()
         }
     }
 
     pub fn window(&self) -> xcb::Window {
         self.window
-    }
-
-    pub fn set_input_focus(&self) {
-        let connection = connection();
-        xcb::set_input_focus(
-            &connection,
-            xcb::INPUT_FOCUS_NONE as u8,
-            self.window,
-            xcb::CURRENT_TIME,
-        );
-        let screen = connection.get_setup().roots().nth(0).unwrap();
-        set_window_property(screen.root(), *ATOM__NET_ACTIVE_WINDOW, self.window);
     }
 
     pub fn configure(&self) {
@@ -86,19 +70,16 @@ impl Commands for WindowData {
         vec![String::from("close_focused_window")]
     }
 
-    fn execute_command(
-        &mut self,
-        command: &str,
-        _args: &[&str],
-    ) -> Option<Box<Fn(&mut WindowManager)>> {
+    fn execute_command(&mut self, command: &str, _args: &[&str]) -> bool {
         match command {
             "close_focused_window" => {
                 xcb::kill_client(&connection(), self.window);
-                None
+                // destruction of window will trigger layout update
+                false
             }
             _ => {
                 eprintln!("Unhandled command: {}", command);
-                None
+                false
             }
         }
     }

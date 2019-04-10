@@ -12,26 +12,44 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn add_window(&mut self, window: xcb::Window) {
+    pub fn show(&self) {
+        let connection = connection();
+        self.windows.iter().for_each(|w| {
+            xcb::map_window(&connection, w.window());
+        });
+        self.synchronized_focused_window_with_os();
+    }
+
+    pub fn hide(&self) {
+        let connection = connection();
+        self.windows.iter().for_each(|w| {
+            xcb::unmap_window(&connection, w.window());
+        });
+    }
+
+    pub fn notify_window_mapped(&mut self, window: xcb::Window) -> bool {
+        if self.windows.iter().find(|w| w.window() == window).is_some() {
+            return false;
+        }
         let data = WindowData::new(window);
-        let is_managed = data.is_managed;
         match self.focused_window {
             Some(index) => {
                 self.windows.insert(index, data);
-                if is_managed {
-                    self.set_focused_window(Some(index));
-                }
+                self.set_focused_window(Some(index));
             }
             None => {
                 self.windows.insert(0, data);
-                if is_managed {
-                    self.set_focused_window(Some(0));
-                }
+                self.set_focused_window(Some(0));
             }
         }
+        return true;
     }
 
-    pub fn remove_window(&mut self, window: xcb::Window) {
+    pub fn notify_window_unmapped(&mut self, window: xcb::Window) -> bool {
+        return false;
+    }
+
+    pub fn notify_window_destroyed(&mut self, window: xcb::Window) -> bool {
         if let Some(pos) = self.windows.iter().position(|w| w.window() == window) {
             self.windows.remove(pos);
             if self.windows.is_empty() {
@@ -49,16 +67,15 @@ impl Workspace {
                 };
                 self.set_focused_window(new_fw);
             }
+            return true;
+        } else {
+            return false;
         }
     }
 
-    pub fn update_layout(&mut self) -> Vec<Box<Artist>> {
-        let connection = connection();
-        let screen = connection.get_setup().roots().nth(0).unwrap();
-        let (new_windows, artists) = self.layouts[self.current_layout].layout(
-            &Bounds::new(0, 0, screen.width_in_pixels(), screen.height_in_pixels()),
-            self.windows.clone(),
-        );
+    pub fn update_layout(&mut self, bounds: &Bounds) -> Vec<Box<Artist>> {
+        let (new_windows, artists) =
+            self.layouts[self.current_layout].layout(bounds, self.windows.clone());
 
         // TODO: only configure changed windows
 
@@ -73,8 +90,32 @@ impl Workspace {
 
     fn set_focused_window(&mut self, w: Option<usize>) {
         self.focused_window = w;
-        if let Some(index) = w {
-            self.windows[index].set_input_focus();
+        self.synchronized_focused_window_with_os();
+    }
+
+    fn synchronized_focused_window_with_os(&self) {
+        let connection = connection();
+        let screen = connection.get_setup().roots().nth(0).unwrap();
+        if let Some(index) = self.focused_window {
+            xcb::set_input_focus(
+                &connection,
+                xcb::INPUT_FOCUS_NONE as u8,
+                self.windows[index].window(),
+                xcb::CURRENT_TIME,
+            );
+            set_window_property(
+                screen.root(),
+                *ATOM__NET_ACTIVE_WINDOW,
+                self.windows[index].window(),
+            );
+        } else {
+            xcb::set_input_focus(
+                &connection,
+                xcb::INPUT_FOCUS_NONE as u8,
+                xcb::NONE,
+                xcb::CURRENT_TIME,
+            );
+            xcb::delete_property(&connection, screen.root(), *ATOM__NET_ACTIVE_WINDOW);
         }
     }
 
@@ -82,15 +123,11 @@ impl Workspace {
         // TODO: account for floating/non-floating
 
         for new_index in (index + 1)..self.windows.len() {
-            if self.windows[new_index].is_managed {
-                return Some(new_index);
-            }
+            return Some(new_index);
         }
 
         for new_index in 0..index {
-            if self.windows[new_index].is_managed {
-                return Some(new_index);
-            }
+            return Some(new_index);
         }
 
         None
@@ -100,15 +137,11 @@ impl Workspace {
         // TODO: account for floating/non-floating
 
         for new_index in (1..=index).rev() {
-            if self.windows[new_index - 1].is_managed {
-                return Some(new_index - 1);
-            }
+            return Some(new_index - 1);
         }
 
         for new_index in ((index + 2)..=self.windows.len()).rev() {
-            if self.windows[new_index - 1].is_managed {
-                return Some(new_index - 1);
-            }
+            return Some(new_index - 1);
         }
 
         None
@@ -152,11 +185,7 @@ impl Commands for Workspace {
         commands
     }
 
-    fn execute_command(
-        &mut self,
-        command: &str,
-        args: &[&str],
-    ) -> Option<Box<Fn(&mut WindowManager)>> {
+    fn execute_command(&mut self, command: &str, args: &[&str]) -> bool {
         if command.starts_with("layout/") {
             self.layouts[self.current_layout].execute_command(command.split_at(7).1, args)
         } else {
@@ -164,33 +193,33 @@ impl Commands for Workspace {
                 "switch_to_next_layout" => {
                     eprintln!("switch to next layout");
                     self.current_layout = (self.current_layout + 1) % self.layouts.len();
-                    Some(Box::new(|w| w.update_layout()))
+                    true
                 }
                 "switch_to_previous_layout" => {
                     eprintln!("switch to previous layout");
                     self.current_layout =
                         (self.current_layout + self.layouts.len() - 1) % self.layouts.len();
-                    Some(Box::new(|w| w.update_layout()))
+                    true
                 }
                 "switch_to_layout_named:" => {
                     eprintln!("switch to layout named: {}", args[0]);
                     match self.layouts.iter().position(|l| l.name() == args[0]) {
                         Some(index) => {
                             self.current_layout = index;
-                            Some(Box::new(|w| w.update_layout()))
+                            true
                         }
-                        None => None,
+                        None => false,
                     }
                 }
                 "focus_on_window:" => match args[0].parse::<u32>() {
                     Ok(window) => match self.windows.iter().position(|w| w.window() == window) {
                         Some(index) => {
                             self.set_focused_window(Some(index));
-                            Some(Box::new(|w| w.update_layout()))
+                            true
                         }
-                        None => None,
+                        None => false,
                     },
-                    Err(_) => None,
+                    Err(_) => false,
                 },
                 _ => match self.focused_window {
                     Some(index) => match command {
@@ -200,16 +229,16 @@ impl Commands for Workspace {
                             let window = self.windows.remove(index);
                             self.windows.insert(0, window);
                             self.set_focused_window(Some(0));
-                            Some(Box::new(|w| w.update_layout()))
+                            true
                         }
                         "move_focused_window_forward" => match self.focusable_window_after(index) {
                             Some(new_index) => {
                                 // Floating or stacked needs to re-order the actual windows
                                 self.windows.swap(index, new_index);
                                 self.set_focused_window(Some(new_index));
-                                Some(Box::new(|w| w.update_layout()))
+                                true
                             }
-                            None => None,
+                            None => false,
                         },
                         "move_focused_window_backward" => match self.focusable_window_before(index)
                         {
@@ -217,33 +246,33 @@ impl Commands for Workspace {
                                 // Floating or stacked needs to re-order the actual windows
                                 self.windows.swap(index, new_index);
                                 self.set_focused_window(Some(new_index));
-                                Some(Box::new(|w| w.update_layout()))
+                                true
                             }
-                            None => None,
+                            None => false,
                         },
                         "focus_on_next_window" => match self.focusable_window_after(index) {
                             Some(new_index) => {
                                 // Floating or stacked needs to re-order the actual windows
                                 self.set_focused_window(Some(new_index));
-                                Some(Box::new(|w| w.update_layout()))
+                                true
                             }
-                            None => None,
+                            None => false,
                         },
                         "focus_on_previous_window" => {
                             match self.focusable_window_before(index) {
                                 Some(new_index) => {
                                     // Floating or stacked needs to re-order the actual windows
                                     self.set_focused_window(Some(new_index));
-                                    Some(Box::new(|w| w.update_layout()))
+                                    true
                                 }
-                                None => None,
+                                None => false,
                             }
                         }
                         // "move_focused_window_to_position_of_window:" => None,
                         // "swap_focused_window_with_window:" => None,
                         _ => self.windows[index].execute_command(command, args),
                     },
-                    None => None,
+                    None => false,
                 },
             }
         }

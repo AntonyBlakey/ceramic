@@ -1,9 +1,7 @@
 pub mod add_focus_border;
 pub mod add_gaps;
 pub mod add_window_selector_labels;
-pub mod avoid_struts;
 pub mod grid_layout;
-pub mod ignore_unmanaged_windows;
 pub mod layout_root;
 pub mod linear_layout;
 pub mod monad_layout;

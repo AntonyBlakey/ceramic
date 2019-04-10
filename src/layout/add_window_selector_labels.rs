@@ -60,19 +60,15 @@ impl<A: Layout> Commands for AddWindowSelectorLabels<A> {
         commands
     }
 
-    fn execute_command(
-        &mut self,
-        command: &str,
-        args: &[&str],
-    ) -> Option<Box<Fn(&mut WindowManager)>> {
+    fn execute_command(&mut self, command: &str, args: &[&str]) -> bool {
         match command {
             "show_window_selector_labels" => {
                 self.is_enabled = true;
-                Some(Box::new(|wm| wm.update_layout()))
+                true
             }
             "hide_window_selector_labels" => {
                 self.is_enabled = false;
-                Some(Box::new(|wm| wm.update_layout()))
+                true
             }
             _ => self.child.execute_command(command, args),
         }

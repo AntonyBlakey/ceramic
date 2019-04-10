@@ -1,7 +1,7 @@
 use super::{layout::*, window_manager::WindowManager};
 
 pub fn configure(wm: &mut WindowManager) {
-    for i in 1..=9 {
+    for i in 1..=3 {
         wm.add_workspace(&format!("{}", i), layouts());
     }
 }
@@ -26,12 +26,10 @@ fn layouts() -> Vec<layout_root::LayoutRoot> {
 fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> layout_root::LayoutRoot {
     layout_root::new(
         name,
-        avoid_struts::new(ignore_unmanaged_windows::new(
-            add_window_selector_labels::new(add_gaps::new(
-                5,
-                5,
-                add_focus_border::new(1, (0, 255, 0), child),
-            )),
+        add_window_selector_labels::new(add_gaps::new(
+            5,
+            5,
+            add_focus_border::new(1, (0, 255, 0), child),
         )),
     )
 }

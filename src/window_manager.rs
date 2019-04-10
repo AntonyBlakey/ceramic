@@ -1,5 +1,9 @@
 use super::{
-    artist::Artist, commands::Commands, config, connection::*, layout::layout_root::LayoutRoot,
+    artist::Artist,
+    commands::Commands,
+    config,
+    connection::*,
+    layout::{layout_root::LayoutRoot, Bounds},
     workspace::Workspace,
 };
 use std::collections::HashMap;
@@ -8,7 +12,7 @@ pub fn run() {
     let mut wm = WindowManager::default();
     config::configure(&mut wm);
 
-    // TODO: handle all screens
+    // TODO: handle all screens}
 
     let connection = connection();
     let screen = connection.get_setup().roots().nth(0).unwrap();
@@ -32,6 +36,7 @@ pub fn run() {
 pub struct WindowManager {
     workspaces: Vec<Workspace>,
     current_workspace: usize,
+    unmanaged_windows: Vec<xcb::Window>,
     decorations: HashMap<xcb::Window, Box<Artist>>,
 }
 
@@ -46,18 +51,11 @@ impl WindowManager {
             current_layout: 0,
         })
     }
-    // public because it is called by the command result functions
-    pub fn update_layout(&mut self) {
-        let artists = self.workspaces[self.current_workspace].update_layout();
-        self.update_decorators(artists);
-        self.update_available_commands();
-    }
 
     pub fn do_command(&mut self, command: &str, args: &[&str]) {
         eprintln!("execute command: {} {:?}", command, args);
-        match self.execute_command(command, args) {
-            Some(f) => f(self),
-            None => (),
+        if self.execute_command(command, args) {
+            self.update_layout();
         }
     }
 
@@ -202,23 +200,43 @@ impl WindowManager {
             xcb::MAP_NOTIFY => {
                 let e: &xcb::MapNotifyEvent = unsafe { xcb::cast_event(e) };
                 if !self.decorations.contains_key(&e.window()) {
-                    self.workspaces[self.current_workspace].add_window(e.window());
-                    self.update_layout();
+                    let window_type = get_atoms_property(e.window(), *ATOM__NET_WM_WINDOW_TYPE);
+                    let is_managed = !window_type.contains(&*ATOM__NET_WM_WINDOW_TYPE_DOCK);
+                    if is_managed {
+                        if self.workspaces[self.current_workspace].notify_window_mapped(e.window())
+                        {
+                            self.update_layout();
+                        }
+                    } else {
+                        self.unmanaged_windows.push(e.window());
+                        self.update_layout();
+                    }
                 }
             }
 
             xcb::UNMAP_NOTIFY => {
                 let e: &xcb::UnmapNotifyEvent = unsafe { xcb::cast_event(e) };
+                self.unmanaged_windows.remove_item(&e.window());
+                if self.workspaces[self.current_workspace].notify_window_unmapped(e.window()) {
+                    self.update_layout()
+                }
+            }
+
+            xcb::DESTROY_NOTIFY => {
+                let e: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(e) };
                 if !self.decorations.contains_key(&e.window()) {
-                    self.workspaces[self.current_workspace].remove_window(e.window());
-                    self.update_layout();
+                    if self.workspaces[self.current_workspace].notify_window_destroyed(e.window()) {
+                        self.update_layout();
+                    }
+                    self.workspaces.iter_mut().for_each(|ws| {
+                        ws.notify_window_destroyed(e.window());
+                    });
                 }
             }
 
             xcb::CONFIGURE_REQUEST
             | xcb::CLIENT_MESSAGE
             | xcb::CREATE_NOTIFY
-            | xcb::DESTROY_NOTIFY
             | xcb::CONFIGURE_NOTIFY
             | xcb::MAPPING_NOTIFY => (),
             t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
@@ -226,7 +244,31 @@ impl WindowManager {
         connection().flush();
     }
 
-    fn update_decorators(&mut self, artists: Vec<Box<Artist>>) {
+    fn update_layout(&mut self) {
+        let connection = connection();
+        let screen = connection.get_setup().roots().nth(0).unwrap();
+        let mut bounds = Bounds::new(0, 0, screen.width_in_pixels(), screen.height_in_pixels());
+
+        for window in &self.unmanaged_windows {
+            let struts = get_cardinals_property(*window, *ATOM__NET_WM_STRUT);
+            if struts.len() == 4 {
+                let left = struts[0];
+                let right = struts[1];
+                let top = struts[2];
+                let bottom = struts[3];
+                bounds.origin.x += left as i16;
+                bounds.size.width -= (left + right) as u16;
+                bounds.origin.y += top as i16;
+                bounds.size.height -= (top + bottom) as u16;
+            }
+        }
+
+        let artists = self.workspaces[self.current_workspace].update_layout(&bounds);
+        self.set_artists(artists);
+        self.set_root_window_available_commands_property();
+    }
+
+    fn set_artists(&mut self, artists: Vec<Box<Artist>>) {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let root = screen.root();
@@ -283,7 +325,25 @@ impl WindowManager {
         }
     }
 
-    fn update_available_commands(&self) {
+    fn set_workspace(&mut self, workspace: usize) -> bool {
+        if workspace != self.current_workspace {
+            self.workspaces[self.current_workspace].hide();
+            self.current_workspace = workspace;
+            self.workspaces[self.current_workspace].show();
+            let connection = connection();
+            let screen = connection.get_setup().roots().nth(0).unwrap();
+            set_cardinal_property(
+                screen.root(),
+                *ATOM__NET_CURRENT_DESKTOP,
+                self.current_workspace as u32,
+            );
+            true
+        } else {
+            false
+        }
+    }
+
+    fn set_root_window_available_commands_property(&self) {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
         set_strings_property(
@@ -333,8 +393,8 @@ impl Commands for WindowManager {
     fn get_commands(&self) -> Vec<String> {
         let mut commands = self.workspaces[self.current_workspace].get_commands();
         if self.workspaces.len() > 1 {
-            commands.push(String::from("switch_to_workspace_named:"));
             commands.push(String::from("move_focused_window_to_workspace_named:"));
+            commands.push(String::from("switch_to_workspace_named:"));
             commands.push(String::from("switch_to_next_workspace"));
             commands.push(String::from("switch_to_previous_workspace"));
         }
@@ -343,18 +403,23 @@ impl Commands for WindowManager {
         commands
     }
 
-    fn execute_command(
-        &mut self,
-        command: &str,
-        args: &[&str],
-    ) -> Option<Box<Fn(&mut WindowManager)>> {
+    fn execute_command(&mut self, command: &str, args: &[&str]) -> bool {
         match command {
-            "switch_to_workspace_named:" => None,
-            "move_focused_window_to_workspace_named:" => None,
-            "switch_to_next_workspace" => None,
-            "switch_to_previous_workspace" => None,
-            "quit" => None,
-            "reload" => None,
+            "move_focused_window_to_workspace_named:" => false,
+            "switch_to_workspace_named:" => {
+                match self.workspaces.iter().position(|ws| ws.name == args[0]) {
+                    Some(new_workspace) => self.set_workspace(new_workspace),
+                    _ => false,
+                }
+            }
+            "switch_to_next_workspace" => {
+                self.set_workspace((self.current_workspace + 1) % self.workspaces.len())
+            }
+            "switch_to_previous_workspace" => self.set_workspace(
+                (self.current_workspace + self.workspaces.len() - 1) % self.workspaces.len(),
+            ),
+            "quit" => false,
+            "reload" => false,
             _ => self.workspaces[self.current_workspace].execute_command(command, args),
         }
     }

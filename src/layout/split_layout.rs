@@ -102,11 +102,7 @@ impl<A: Layout, B: Layout> Commands for SplitLayout<A, B> {
         result
     }
 
-    fn execute_command(
-        &mut self,
-        command: &str,
-        args: &[&str],
-    ) -> Option<Box<Fn(&mut WindowManager)>> {
+    fn execute_command(&mut self, command: &str, args: &[&str]) -> bool {
         if command.starts_with("0/") {
             self.children.0.execute_command(command.split_at(2).1, args)
         } else if command.starts_with("1/") {
@@ -119,7 +115,7 @@ impl<A: Layout, B: Layout> Commands for SplitLayout<A, B> {
                 "decrease_ratio" if self.ratio > 0.1 => self.ratio -= 0.05,
                 _ => (),
             }
-            Some(Box::new(|wm| wm.update_layout()))
+            true
         }
     }
 }
