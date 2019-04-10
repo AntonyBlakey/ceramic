@@ -3,7 +3,7 @@ use super::{commands::Commands, connection::*, layout::Bounds, window_manager::W
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WindowData {
     window: xcb::Window,
-    is_managed: bool,
+    pub is_managed: bool,
     pub bounds: Bounds,
     pub border_width: u8,
     pub border_color: (u8, u8, u8),
@@ -13,13 +13,16 @@ pub struct WindowData {
 
 impl WindowData {
     pub fn new(window: xcb::Window) -> WindowData {
+        let window_type = get_atoms_property(window, *ATOM__NET_WM_WINDOW_TYPE);
+        let is_managed = !window_type.contains(&*ATOM__NET_WM_WINDOW_TYPE_DOCK);
         WindowData {
             window,
+            is_managed,
             ..Default::default()
         }
     }
 
-    pub fn id(&self) -> xcb::Window {
+    pub fn window(&self) -> xcb::Window {
         self.window
     }
 
@@ -86,7 +89,7 @@ impl Commands for WindowData {
     fn execute_command(
         &mut self,
         command: &str,
-        args: &[&str],
+        _args: &[&str],
     ) -> Option<Box<Fn(&mut WindowManager)>> {
         match command {
             "close_focused_window" => {

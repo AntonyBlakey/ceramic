@@ -1,10 +1,10 @@
-use super::{
+use crate::{
     artist::Artist, commands::Commands, connection::*, layout::*, window_data::WindowData,
     window_manager::WindowManager,
 };
 use std::collections::HashMap;
 
-pub fn add_window_selector_labels<A: Layout>(child: A) -> AddWindowSelectorLabels<A> {
+pub fn new<A: Layout>(child: A) -> AddWindowSelectorLabels<A> {
     AddWindowSelectorLabels {
         is_enabled: false,
         child,
@@ -17,7 +17,11 @@ pub struct AddWindowSelectorLabels<A: Layout> {
 }
 
 impl<A: Layout> Layout for AddWindowSelectorLabels<A> {
-    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+    fn layout(
+        &self,
+        rect: &Bounds,
+        windows: Vec<WindowData>,
+    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
         if !self.is_enabled {
             return self.child.layout(rect, windows);
         }
@@ -30,9 +34,9 @@ impl<A: Layout> Layout for AddWindowSelectorLabels<A> {
         let mut selector_artists: HashMap<xcb::Window, WindowSelectorArtist> = HashMap::new();
         for (w, c) in new_windows.iter_mut().zip(selector_chars) {
             w.selector_label = format!("{}", c);
-            let leader = w.leader_window.unwrap_or(w.id());
+            let leader = w.leader_window.unwrap_or(w.window());
             let artist = selector_artists.entry(leader).or_default();
-            artist.windows.push((w.selector_label.clone(), w.id()));
+            artist.windows.push((w.selector_label.clone(), w.window()));
         }
 
         artists.extend(
@@ -166,7 +170,7 @@ impl Artist for WindowSelectorArtist {
             let ascent = font_extents.ascent;
 
             let mut label_width = 0;
-            for (label, window) in &self.windows {
+            for (label, _) in &self.windows {
                 let text_extents = context.text_extents(&label);
                 label_width = label_width.max(text_extents.width.ceil() as u16);
             }

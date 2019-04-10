@@ -1,5 +1,5 @@
 use super::{
-    artist::Artist, commands::Commands, config, connection::*, layout::LayoutRoot,
+    artist::Artist, commands::Commands, config, connection::*, layout::layout_root::LayoutRoot,
     workspace::Workspace,
 };
 use std::collections::HashMap;
@@ -312,7 +312,7 @@ impl WindowManager {
                                     .windows
                                     .iter()
                                     .find(|w| w.selector_label == label)
-                                    .map(|w| format!("{}", w.id()))
+                                    .map(|w| format!("{}", w.window()))
                             })
                             .ok_or(())
                     }
