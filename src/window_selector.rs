@@ -132,8 +132,8 @@ impl Artist for WindowSelectorArtist {
                 }
 
                 return Some(Bounds::new(
-                    geometry.x(),
-                    geometry.y(),
+                    geometry.x() + geometry.border_width() as i16,
+                    geometry.y() + geometry.border_width() as i16,
                     Self::MARGIN.width
                         + Self::LABEL_PADDING.width
                         + label_width

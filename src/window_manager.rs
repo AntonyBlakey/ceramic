@@ -303,9 +303,9 @@ impl WindowManager {
             if let Ok(args) = tokens
                 .map(|token| match token {
                     "{window}" => {
-                        self.do_command("show_window_selector_labels", &[]);
+                        self.do_command("layout/show_window_selector_labels", &[]);
                         let selected_label = self.run_keygrab_event_loop();
-                        self.do_command("hide_window_selector_labels", &[]);
+                        self.do_command("layout/hide_window_selector_labels", &[]);
                         selected_label
                             .and_then(|label| {
                                 self.workspaces[self.current_workspace]

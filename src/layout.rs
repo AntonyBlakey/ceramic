@@ -204,35 +204,25 @@ impl LayoutRoot {
     pub fn name(&self) -> String {
         self.name.clone()
     }
+}
 
-    pub fn layout(
-        &self,
-        rect: &Bounds,
-        windows: &[WindowData],
-    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
-        self.child.layout(rect, &windows)
+impl Layout for LayoutRoot {
+    fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+        self.child.layout(rect, windows)
+    }
+}
+
+impl Commands for LayoutRoot {
+    fn get_commands(&self) -> Vec<String> {
+        self.child.get_commands()
     }
 
-    pub fn get_commands(&self) -> Vec<String> {
-        self.child
-            .get_commands()
-            .iter()
-            .map(|s| format!("{}/{}", self.name, s))
-            .collect()
-    }
-
-    pub fn execute_command(
+    fn execute_command(
         &mut self,
         command: &str,
         args: &[&str],
     ) -> Option<Box<Fn(&mut WindowManager)>> {
-        if command.starts_with(self.name.as_str()) {
-            self.child
-                .execute_command(command.split_at(self.name.len() + 1).1, args)
-        } else {
-            eprintln!("Command not valid for layout {} : {}", self.name, command);
-            None
-        }
+        self.child.execute_command(command, args)
     }
 }
 
