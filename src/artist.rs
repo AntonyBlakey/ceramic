@@ -1,4 +1,4 @@
-use super::{layout::Bounds, window_data::WindowData};
+use super::layout::Bounds;
 
 pub trait Artist {
     fn calculate_bounds(&self, window: xcb::Window) -> Option<Bounds>;

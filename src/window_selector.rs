@@ -2,23 +2,23 @@ use super::{
     artist::Artist, commands::Commands, connection::*, layout::*, window_data::WindowData,
     window_manager::WindowManager,
 };
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
-pub fn add_window_selector_labels<A: Layout>(
-    is_enabled: Rc<RefCell<bool>>,
-    child: A,
-) -> AddWindowSelectorLabels<A> {
-    AddWindowSelectorLabels { is_enabled, child }
+pub fn add_window_selector_labels<A: Layout>(child: A) -> AddWindowSelectorLabels<A> {
+    AddWindowSelectorLabels {
+        is_enabled: false,
+        child,
+    }
 }
 
 pub struct AddWindowSelectorLabels<A: Layout> {
-    is_enabled: Rc<RefCell<bool>>,
+    is_enabled: bool,
     child: A,
 }
 
 impl<A: Layout> Layout for AddWindowSelectorLabels<A> {
     fn layout(&self, rect: &Bounds, windows: &[WindowData]) -> (Vec<WindowData>, Vec<Box<Artist>>) {
-        if !*self.is_enabled.borrow() {
+        if !self.is_enabled {
             return self.child.layout(rect, windows);
         }
 
@@ -47,7 +47,13 @@ impl<A: Layout> Layout for AddWindowSelectorLabels<A> {
 
 impl<A: Layout> Commands for AddWindowSelectorLabels<A> {
     fn get_commands(&self) -> Vec<String> {
-        self.child.get_commands()
+        let mut commands = self.child.get_commands();
+        if self.is_enabled {
+            commands.push("hide_window_selector_labels".to_owned());
+        } else {
+            commands.push("show_window_selector_labels".to_owned());
+        }
+        commands
     }
 
     fn execute_command(
@@ -55,88 +61,18 @@ impl<A: Layout> Commands for AddWindowSelectorLabels<A> {
         command: &str,
         args: &[&str],
     ) -> Option<Box<Fn(&mut WindowManager)>> {
-        self.child.execute_command(command, args)
-    }
-}
-
-pub fn run<F>(fallback_dispatcher: &mut F) -> Option<String>
-where
-    F: FnMut(&xcb::GenericEvent),
-{
-    let mut key_press_count = 0;
-    let mut selected_label: Option<String> = None;
-    grab_keyboard();
-    allow_events();
-    let connection = connection();
-    let key_symbols = xcb_util::keysyms::KeySymbols::new(&connection);
-    while let Some(e) = connection.wait_for_event() {
-        match e.response_type() & 0x7f {
-            xcb::KEY_PRESS => {
-                let press_event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
-                if key_press_count == 0 {
-                    let keycode = press_event.detail();
-                    let keysym = key_symbols.get_keysym(keycode, 0);
-                    if keysym != xcb::base::NO_SYMBOL {
-                        let cstr = unsafe {
-                            std::ffi::CStr::from_ptr(x11::xlib::XKeysymToString(keysym.into()))
-                        };
-                        selected_label = cstr.to_str().ok().map(|s| s.to_owned().to_uppercase());
-                    }
-                } else {
-                    selected_label = None;
-                }
-                key_press_count += 1;
+        match command {
+            "show_window_selector_labels" => {
+                self.is_enabled = true;
+                Some(Box::new(|wm| wm.update_layout()))
             }
-            xcb::KEY_RELEASE => {
-                key_press_count -= 1;
-                if key_press_count == 0 {
-                    break;
-                }
+            "hide_window_selector_labels" => {
+                self.is_enabled = false;
+                Some(Box::new(|wm| wm.update_layout()))
             }
-            _ => {
-                fallback_dispatcher(&e);
-            }
+            _ => self.child.execute_command(command, args),
         }
-        allow_events();
     }
-    ungrab_keyboard();
-    allow_events();
-    selected_label
-}
-
-fn grab_keyboard() {
-    let connection = connection();
-    let screen = connection.get_setup().roots().nth(0).unwrap();
-    match xcb::grab_keyboard(
-        &connection,
-        false,
-        screen.root(),
-        xcb::CURRENT_TIME,
-        xcb::GRAB_MODE_ASYNC as u8,
-        xcb::GRAB_MODE_SYNC as u8,
-    )
-    .get_reply()
-    {
-        Ok(_) => (),
-        Err(x) => eprintln!("Failed to grab keyboard: {:?}", x),
-    }
-    connection.flush();
-}
-
-fn ungrab_keyboard() {
-    let connection = connection();
-    xcb::ungrab_keyboard(&connection, xcb::CURRENT_TIME);
-    connection.flush();
-}
-
-fn allow_events() {
-    let connection = connection();
-    xcb::xproto::allow_events(
-        &connection,
-        xcb::ALLOW_SYNC_KEYBOARD as u8,
-        xcb::CURRENT_TIME,
-    );
-    connection.flush();
 }
 
 #[derive(Default)]

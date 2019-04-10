@@ -1,16 +1,8 @@
 use super::{
-    artist::Artist, commands::Commands, config, connection::*, layout::*, window_selector,
+    artist::Artist, commands::Commands, config, connection::*, layout::LayoutRoot,
     workspace::Workspace,
 };
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
-
-#[derive(Default)]
-pub struct WindowManager {
-    pub workspaces: Vec<Workspace>,
-    pub current_workspace: usize,
-    pub window_selector_running: Rc<RefCell<bool>>,
-    decorations: HashMap<xcb::Window, Box<Artist>>,
-}
+use std::collections::HashMap;
 
 pub fn run() {
     let mut wm = WindowManager::default();
@@ -33,9 +25,14 @@ pub fn run() {
 
     // TODO: process all the pre-existing windows
 
-    while let Some(e) = connection.wait_for_event() {
-        wm.dispatch_wm_event(&e);
-    }
+    wm.run_default_event_loop();
+}
+
+#[derive(Default)]
+pub struct WindowManager {
+    workspaces: Vec<Workspace>,
+    current_workspace: usize,
+    decorations: HashMap<xcb::Window, Box<Artist>>,
 }
 
 impl WindowManager {
@@ -49,67 +46,19 @@ impl WindowManager {
             current_layout: 0,
         })
     }
-
-    // public because it is called by temporary event loops such as the window selector
-    pub fn dispatch_wm_event(&mut self, e: &xcb::GenericEvent) {
-        match e.response_type() & 0x7f {
-            xcb::EXPOSE => {
-                let e: &xcb::ExposeEvent = unsafe { xcb::cast_event(e) };
-                if e.count() == 0 {
-                    let window = e.window();
-                    if let Some(artist) = self.decorations.get(&window) {
-                        artist.draw(window);
-                    }
-                }
-            }
-
-            xcb::PROPERTY_NOTIFY => {
-                let e: &xcb::PropertyNotifyEvent = unsafe { xcb::cast_event(e) };
-                if e.atom() == *ATOM_CERAMIC_COMMAND && e.state() == xcb::PROPERTY_NEW_VALUE as u8 {
-                    let command = get_string_property(e.window(), e.atom());
-                    xcb::delete_property(&connection(), e.window(), e.atom());
-                    self.parse_and_dispatch_command(command.as_str());
-                }
-            }
-
-            xcb::MAP_REQUEST => {
-                // TODO: maybe we don't need redirection, only notification?
-                let e: &xcb::MapRequestEvent = unsafe { xcb::cast_event(e) };
-                xcb::map_window(&connection(), e.window());
-            }
-
-            xcb::MAP_NOTIFY => {
-                let e: &xcb::MapNotifyEvent = unsafe { xcb::cast_event(e) };
-                if !self.decorations.contains_key(&e.window()) {
-                    self.workspaces[self.current_workspace].add_window(e.window());
-                    self.update_layout();
-                }
-            }
-
-            xcb::UNMAP_NOTIFY => {
-                let e: &xcb::UnmapNotifyEvent = unsafe { xcb::cast_event(e) };
-                if !self.decorations.contains_key(&e.window()) {
-                    self.workspaces[self.current_workspace].remove_window(e.window());
-                    self.update_layout();
-                }
-            }
-
-            xcb::CONFIGURE_REQUEST
-            | xcb::CLIENT_MESSAGE
-            | xcb::CREATE_NOTIFY
-            | xcb::DESTROY_NOTIFY
-            | xcb::CONFIGURE_NOTIFY
-            | xcb::MAPPING_NOTIFY => (),
-            t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
-        }
-        connection().flush();
-    }
-
     // public because it is called by the command result functions
     pub fn update_layout(&mut self) {
         let artists = self.workspaces[self.current_workspace].update_layout();
         self.update_decorators(artists);
         self.update_available_commands();
+    }
+
+    pub fn do_command(&mut self, command: &str, args: &[&str]) {
+        eprintln!("execute command: {} {:?}", command, args);
+        match self.execute_command(command, args) {
+            Some(f) => f(self),
+            None => (),
+        }
     }
 
     fn set_initial_root_window_properties(&self) {
@@ -171,6 +120,110 @@ impl WindowManager {
             ],
         );
         connection.flush();
+    }
+
+    fn run_default_event_loop(&mut self) {
+        let connection = connection();
+        while let Some(e) = connection.wait_for_event() {
+            self.dispatch_wm_event(&e);
+        }
+    }
+
+    fn run_keygrab_event_loop(&mut self) -> Option<String> {
+        let mut key_press_count = 0;
+        let mut selected_label: Option<String> = None;
+        grab_keyboard();
+        allow_events();
+        let connection = connection();
+        let key_symbols = xcb_util::keysyms::KeySymbols::new(&connection);
+        while let Some(e) = connection.wait_for_event() {
+            match e.response_type() & 0x7f {
+                xcb::KEY_PRESS => {
+                    let press_event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
+                    if key_press_count == 0 {
+                        let keycode = press_event.detail();
+                        let keysym = key_symbols.get_keysym(keycode, 0);
+                        if keysym != xcb::base::NO_SYMBOL {
+                            let cstr = unsafe {
+                                std::ffi::CStr::from_ptr(x11::xlib::XKeysymToString(keysym.into()))
+                            };
+                            selected_label =
+                                cstr.to_str().ok().map(|s| s.to_owned().to_uppercase());
+                        }
+                    } else {
+                        selected_label = None;
+                    }
+                    key_press_count += 1;
+                }
+                xcb::KEY_RELEASE => {
+                    key_press_count -= 1;
+                    if key_press_count == 0 {
+                        break;
+                    }
+                }
+                _ => {
+                    self.dispatch_wm_event(&e);
+                }
+            }
+            allow_events();
+        }
+        ungrab_keyboard();
+        allow_events();
+        selected_label
+    }
+
+    fn dispatch_wm_event(&mut self, e: &xcb::GenericEvent) {
+        match e.response_type() & 0x7f {
+            xcb::EXPOSE => {
+                let e: &xcb::ExposeEvent = unsafe { xcb::cast_event(e) };
+                if e.count() == 0 {
+                    let window = e.window();
+                    if let Some(artist) = self.decorations.get(&window) {
+                        artist.draw(window);
+                    }
+                }
+            }
+
+            xcb::PROPERTY_NOTIFY => {
+                let e: &xcb::PropertyNotifyEvent = unsafe { xcb::cast_event(e) };
+                if e.atom() == *ATOM_CERAMIC_COMMAND && e.state() == xcb::PROPERTY_NEW_VALUE as u8 {
+                    let command = get_string_property(e.window(), e.atom());
+                    xcb::delete_property(&connection(), e.window(), e.atom());
+                    self.parse_and_dispatch_command(command.as_str());
+                }
+            }
+
+            xcb::MAP_REQUEST => {
+                // TODO: maybe we don't need redirection, only notification?
+                let e: &xcb::MapRequestEvent = unsafe { xcb::cast_event(e) };
+                xcb::map_window(&connection(), e.window());
+            }
+
+            xcb::MAP_NOTIFY => {
+                let e: &xcb::MapNotifyEvent = unsafe { xcb::cast_event(e) };
+                if !self.decorations.contains_key(&e.window()) {
+                    self.workspaces[self.current_workspace].add_window(e.window());
+                    self.update_layout();
+                }
+            }
+
+            xcb::UNMAP_NOTIFY => {
+                let e: &xcb::UnmapNotifyEvent = unsafe { xcb::cast_event(e) };
+                if !self.decorations.contains_key(&e.window()) {
+                    self.workspaces[self.current_workspace].remove_window(e.window());
+                    self.update_layout();
+                }
+            }
+
+            xcb::CONFIGURE_REQUEST
+            | xcb::CLIENT_MESSAGE
+            | xcb::CREATE_NOTIFY
+            | xcb::DESTROY_NOTIFY
+            | xcb::CONFIGURE_NOTIFY
+            | xcb::MAPPING_NOTIFY => (),
+            t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
+        }
+        connection().flush();
     }
 
     fn update_decorators(&mut self, artists: Vec<Box<Artist>>) {
@@ -245,28 +298,14 @@ impl WindowManager {
     }
 
     fn parse_and_dispatch_command(&mut self, command_string: &str) {
-        if *self.window_selector_running.borrow() {
-            return;
-        }
-
         let mut tokens = command_string.split(' ');
         if let Some(command) = tokens.next() {
             if let Ok(args) = tokens
                 .map(|token| match token {
                     "{window}" => {
-                        // Show the decorations
-                        *self.window_selector_running.borrow_mut() = true;
-                        self.update_layout();
-
-                        // Run the event loop
-                        let selected_label =
-                            window_selector::run(&mut |e| self.dispatch_wm_event(e));
-
-                        // Hide the decorations
-                        *self.window_selector_running.borrow_mut() = false;
-                        self.update_layout();
-
-                        // Find the selected window
+                        self.do_command("show_window_selector_labels", &[]);
+                        let selected_label = self.run_keygrab_event_loop();
+                        self.do_command("hide_window_selector_labels", &[]);
                         selected_label
                             .and_then(|label| {
                                 self.workspaces[self.current_workspace]
@@ -281,14 +320,10 @@ impl WindowManager {
                 })
                 .collect::<Result<Vec<String>, ()>>()
             {
-                eprintln!("execute command: {} {:?}", command, args);
-                match self.execute_command(
+                self.do_command(
                     command,
                     &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
-                ) {
-                    Some(f) => f(self),
-                    None => (),
-                }
+                );
             }
         }
     }
@@ -323,4 +358,39 @@ impl Commands for WindowManager {
             _ => self.workspaces[self.current_workspace].execute_command(command, args),
         }
     }
+}
+
+fn grab_keyboard() {
+    let connection = connection();
+    let screen = connection.get_setup().roots().nth(0).unwrap();
+    match xcb::grab_keyboard(
+        &connection,
+        false,
+        screen.root(),
+        xcb::CURRENT_TIME,
+        xcb::GRAB_MODE_ASYNC as u8,
+        xcb::GRAB_MODE_SYNC as u8,
+    )
+    .get_reply()
+    {
+        Ok(_) => (),
+        Err(x) => eprintln!("Failed to grab keyboard: {:?}", x),
+    }
+    connection.flush();
+}
+
+fn ungrab_keyboard() {
+    let connection = connection();
+    xcb::ungrab_keyboard(&connection, xcb::CURRENT_TIME);
+    connection.flush();
+}
+
+fn allow_events() {
+    let connection = connection();
+    xcb::xproto::allow_events(
+        &connection,
+        xcb::ALLOW_SYNC_KEYBOARD as u8,
+        xcb::CURRENT_TIME,
+    );
+    connection.flush();
 }
