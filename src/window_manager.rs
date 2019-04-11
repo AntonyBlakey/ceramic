@@ -4,6 +4,7 @@ use super::{
     config,
     connection::*,
     layout::{layout_root::LayoutRoot, Bounds},
+    window_data::WindowType,
     workspace::Workspace,
 };
 use std::collections::HashMap;
@@ -200,16 +201,18 @@ impl WindowManager {
             xcb::MAP_NOTIFY => {
                 let e: &xcb::MapNotifyEvent = unsafe { xcb::cast_event(e) };
                 if !self.decorations.contains_key(&e.window()) {
-                    let window_type = get_atoms_property(e.window(), *ATOM__NET_WM_WINDOW_TYPE);
-                    let is_managed = !window_type.contains(&*ATOM__NET_WM_WINDOW_TYPE_DOCK);
-                    if is_managed {
-                        if self.workspaces[self.current_workspace].notify_window_mapped(e.window())
-                        {
+                    match self.classify_window(e.window()) {
+                        None => {
+                            self.unmanaged_windows.push(e.window());
                             self.update_layout();
                         }
-                    } else {
-                        self.unmanaged_windows.push(e.window());
-                        self.update_layout();
+                        Some(window_type) => {
+                            if self.workspaces[self.current_workspace]
+                                .notify_window_mapped(e.window(), window_type)
+                            {
+                                self.update_layout();
+                            }
+                        }
                     }
                 }
             }
@@ -387,25 +390,57 @@ impl WindowManager {
             }
         }
     }
+
+    fn classify_window(&self, window: xcb::Window) -> Option<WindowType> {
+        if let Some(owner) = get_window_property(window, xcb::ATOM_WM_TRANSIENT_FOR) {
+            eprintln!("Transient {:x} for {:x}", owner, window);
+            Some(WindowType::TRANSIENT(owner))
+        } else {
+            let window_class_strings = get_ascii_strings_property(window, xcb::ATOM_WM_CLASS);
+            eprintln!("Classes: {:?}", window_class_strings);
+            if window_class_strings.contains(&"St80".to_owned()) {
+                Some(WindowType::FLOATING)
+            } else {
+                let window_type_atoms = get_atoms_property(window, *ATOM__NET_WM_WINDOW_TYPE);
+                eprintln!("Types {:?}", window_type_atoms);
+                if window_type_atoms.is_empty() {
+                    let window_state_atoms = get_atoms_property(window, *ATOM__NET_WM_STATE);
+                    if window_state_atoms.contains(&*ATOM__NET_WM_STATE_ABOVE) {
+                        Some(WindowType::FLOATING)
+                    } else {
+                        Some(WindowType::TILED)
+                    }
+                } else if window_type_atoms.contains(&*ATOM__NET_WM_WINDOW_TYPE_NORMAL) {
+                    Some(WindowType::TILED)
+                } else if window_type_atoms.contains(&*ATOM__NET_WM_WINDOW_TYPE_DIALOG) {
+                    Some(WindowType::FLOATING)
+                } else if window_type_atoms.contains(&*ATOM__NET_WM_WINDOW_TYPE_SPLASH) {
+                    Some(WindowType::FLOATING)
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 impl Commands for WindowManager {
     fn get_commands(&self) -> Vec<String> {
         let mut commands = self.workspaces[self.current_workspace].get_commands();
         if self.workspaces.len() > 1 {
-            commands.push(String::from("move_focused_window_to_workspace_named:"));
+            // commands.push(String::from("move_focused_window_to_workspace_named:"));
             commands.push(String::from("switch_to_workspace_named:"));
             commands.push(String::from("switch_to_next_workspace"));
             commands.push(String::from("switch_to_previous_workspace"));
         }
         commands.push(String::from("quit"));
-        commands.push(String::from("reload"));
+        // commands.push(String::from("reload"));
         commands
     }
 
     fn execute_command(&mut self, command: &str, args: &[&str]) -> bool {
         match command {
-            "move_focused_window_to_workspace_named:" => false,
+            // "move_focused_window_to_workspace_named:" => false,
             "switch_to_workspace_named:" => {
                 match self.workspaces.iter().position(|ws| ws.name == args[0]) {
                     Some(new_workspace) => self.set_workspace(new_workspace),
@@ -419,7 +454,7 @@ impl Commands for WindowManager {
                 (self.current_workspace + self.workspaces.len() - 1) % self.workspaces.len(),
             ),
             "quit" => false,
-            "reload" => false,
+            // "reload" => false,
             _ => self.workspaces[self.current_workspace].execute_command(command, args),
         }
     }

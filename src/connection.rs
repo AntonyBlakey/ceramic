@@ -196,6 +196,26 @@ pub fn get_cardinals_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
     }
 }
 
+pub fn get_ascii_string_property(window: xcb::Window, name_atom: u32) -> String {
+    // TODO: find a better method to go from ascii (latin-1?) to utf-8.
+    String::from_utf8(
+        xcb::get_property(
+            &connection(),
+            false,
+            window,
+            name_atom,
+            xcb::ATOM_STRING,
+            0,
+            1024,
+        )
+        .get_reply()
+        .unwrap()
+        .value()
+        .to_vec(),
+    )
+    .unwrap()
+}
+
 pub fn get_string_property(window: xcb::Window, name_atom: u32) -> String {
     String::from_utf8(
         xcb::get_property(
@@ -213,6 +233,28 @@ pub fn get_string_property(window: xcb::Window, name_atom: u32) -> String {
         .to_vec(),
     )
     .unwrap()
+}
+
+pub fn get_ascii_strings_property(window: xcb::Window, name_atom: u32) -> Vec<String> {
+    // TODO: handle case where property is bigger than we allowed for
+    // TODO: find a better method to go from ascii (latin-1?) to utf-8.
+    let s: String = String::from_utf8(
+        xcb::get_property(
+            &connection(),
+            false,
+            window,
+            name_atom,
+            xcb::ATOM_STRING,
+            0,
+            1024,
+        )
+        .get_reply()
+        .unwrap()
+        .value()
+        .to_vec(),
+    )
+    .unwrap();
+    s.trim_matches('\0').split("\0").map(|s| String::from(s)).collect()
 }
 
 pub fn get_strings_property(window: xcb::Window, name_atom: u32) -> Vec<String> {
@@ -233,7 +275,7 @@ pub fn get_strings_property(window: xcb::Window, name_atom: u32) -> Vec<String> 
         .to_vec(),
     )
     .unwrap();
-    s.split("\0").map(|s| String::from(s)).collect()
+    s.trim_matches('\0').split("\0").map(|s| String::from(s)).collect()
 }
 
 pub fn get_window_property(window: xcb::Window, name_atom: u32) -> Option<xcb::Window> {

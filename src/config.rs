@@ -26,10 +26,10 @@ fn layouts() -> Vec<layout_root::LayoutRoot> {
 fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> layout_root::LayoutRoot {
     layout_root::new(
         name,
-        add_window_selector_labels::new(add_gaps::new(
-            5,
-            5,
-            add_focus_border::new(1, (0, 255, 0), child),
+        add_window_selector_labels::new(add_focus_border::new(
+            1,
+            (0, 255, 0),
+            floating_layout::new(add_gaps::new(5, 5, child)),
         )),
     )
 }
