@@ -1,4 +1,3 @@
-
 use crate::{config::*, connection::*, layout::*, window_data::WindowType, workspace::Workspace};
 
 pub fn workspaces(configuration: &ConfigurationProvider) -> Vec<Workspace> {

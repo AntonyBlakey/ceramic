@@ -161,8 +161,31 @@ impl WindowManager {
         selected_label
     }
 
+    fn run_window_move_event_loop(&self, e: &xcb::ButtonPressEvent) {
+        while let Some(e) = connection.wait_for_event() {
+            match e.response_type() & 0x7f {
+            xcb::BUTTON_RELEASE => { break }
+            xcb::MOTION_NOTIFY => {}
+                _ => dispatch_wm_event(e),
+            }
+        }
+    }
+
+    fn run_window_resize_event_loop(&self, e: &xcb::ButtonPressEvent) {
+        while let Some(e) = connection.wait_for_event() {
+            match e.response_type() & 0x7f {
+            xcb::BUTTON_RELEASE => { break }
+            xcb::MOTION_NOTIFY => {}
+                _ => dispatch_wm_event(e),
+            }
+        }
+    }
+
     fn dispatch_wm_event(&mut self, e: &xcb::GenericEvent) {
+        // TODO: handle mouse events for drag/resize
         match e.response_type() & 0x7f {
+            xcb::BUTTON_PRESS => {}
+
             xcb::EXPOSE => {
                 let e: &xcb::ExposeEvent = unsafe { xcb::cast_event(e) };
                 if e.count() == 0 {
@@ -183,7 +206,6 @@ impl WindowManager {
             }
 
             xcb::MAP_REQUEST => {
-                // TODO: maybe we don't need redirection, only notification?
                 let e: &xcb::MapRequestEvent = unsafe { xcb::cast_event(e) };
                 xcb::map_window(&connection(), e.window());
             }
@@ -197,6 +219,7 @@ impl WindowManager {
                             self.update_layout();
                         }
                         Some(window_type) => {
+                            // TODO: passive grab mouse events for drag/resize
                             if self.workspaces[self.current_workspace]
                                 .notify_window_mapped(e.window(), window_type)
                             {
@@ -209,6 +232,7 @@ impl WindowManager {
 
             xcb::UNMAP_NOTIFY => {
                 let e: &xcb::UnmapNotifyEvent = unsafe { xcb::cast_event(e) };
+                // TODO: passive ungrab mouse events for drag/resize
                 self.unmanaged_windows.remove_item(&e.window());
                 if self.workspaces[self.current_workspace].notify_window_unmapped(e.window()) {
                     self.update_layout()
@@ -218,7 +242,6 @@ impl WindowManager {
             xcb::DESTROY_NOTIFY => {
                 let e: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(e) };
                 if !self.decorations.contains_key(&e.window()) {
-                    // TODO: remove from unmanaged windows
                     if self.workspaces[self.current_workspace].notify_window_destroyed(e.window()) {
                         self.update_layout();
                     }
