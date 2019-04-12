@@ -1,23 +1,20 @@
-use crate::{
-    artist::Artist, commands::Commands, layout::*, window_data::WindowData,
-};
+use crate::{artist::Artist, commands::Commands, layout::*, window_data::WindowData};
 
-pub fn new<A: Layout>(screen_gap: u16, window_gap: u16, child: A) -> AddGaps<A> {
-    AddGaps {
+pub fn new(screen_gap: u16, window_gap: u16, child: Box<Layout>) -> Box<AddGaps> {
+    Box::new(AddGaps {
         screen_gap,
         window_gap,
         child,
-    }
+    })
 }
 
-#[derive(Clone)]
-pub struct AddGaps<A: Layout> {
+pub struct AddGaps {
     screen_gap: u16,
     window_gap: u16,
-    child: A,
+    child: Box<Layout>,
 }
 
-impl<A: Layout> Layout for AddGaps<A> {
+impl Layout for AddGaps {
     fn layout(
         &self,
         rect: &Bounds,
@@ -43,7 +40,7 @@ impl<A: Layout> Layout for AddGaps<A> {
     }
 }
 
-impl<A: Layout> Commands for AddGaps<A> {
+impl Commands for AddGaps {
     fn get_commands(&self) -> Vec<String> {
         self.child.get_commands()
     }

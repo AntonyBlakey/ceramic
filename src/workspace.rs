@@ -16,12 +16,22 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    pub fn new(name: &str, layouts: Vec<LayoutRoot>) -> Workspace {
+        Workspace {
+            name: name.into(),
+            layouts,
+            current_layout: 0,
+            windows: Default::default(),
+            focused_window: None,
+        }
+    }
+
     pub fn show(&self) {
         let connection = connection();
         self.windows.iter().for_each(|w| {
             xcb::map_window(&connection, w.window());
         });
-        self.synchronized_focused_window_with_os();
+        self.synchronize_focused_window_with_os();
     }
 
     pub fn hide(&self) {
@@ -77,6 +87,27 @@ impl Workspace {
         }
     }
 
+    pub fn request_configure(&mut self, e: &xcb::ConfigureRequestEvent) -> bool {
+        if let Some(window) = self.windows.iter_mut().find(|w| w.window() == e.window()) {
+            if window.window_type != WindowType::TILED {
+                if e.value_mask() & xcb::CONFIG_WINDOW_X as u16 != 0 {
+                    window.bounds.origin.x = e.x();
+                }
+                if e.value_mask() & xcb::CONFIG_WINDOW_Y as u16 != 0 {
+                    window.bounds.origin.y = e.y();
+                }
+                if e.value_mask() & xcb::CONFIG_WINDOW_WIDTH as u16 != 0 {
+                    window.bounds.size.width = e.width();
+                }
+                if e.value_mask() & xcb::CONFIG_WINDOW_HEIGHT as u16 != 0 {
+                    window.bounds.size.height = e.height();
+                }
+                window.configure();
+            }
+        }
+        false
+    }
+
     pub fn update_layout(&mut self, bounds: &Bounds) -> Vec<Box<Artist>> {
         let (new_windows, artists) =
             self.layouts[self.current_layout].layout(bounds, self.windows.clone());
@@ -94,10 +125,10 @@ impl Workspace {
 
     fn set_focused_window(&mut self, w: Option<usize>) {
         self.focused_window = w;
-        self.synchronized_focused_window_with_os();
+        self.synchronize_focused_window_with_os();
     }
 
-    fn synchronized_focused_window_with_os(&self) {
+    fn synchronize_focused_window_with_os(&self) {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
         if let Some(index) = self.focused_window {
@@ -228,7 +259,7 @@ impl Workspace {
         None
     }
 
-    fn focusable_window_of_same_time_before(&self, index: usize) -> Option<usize> {
+    fn focusable_window_of_same_type_before(&self, index: usize) -> Option<usize> {
         let (from, to) = match self.windows[index].window_type {
             WindowType::TRANSIENT(_) => (0, self.insertion_position_for_floating_window()),
             WindowType::FLOATING => (
@@ -330,15 +361,12 @@ impl Commands for Workspace {
                     Some(index) => match command {
                         "move_focused_window_to_head" => {
                             // TODO: account for floating/non-floating
-                            // Floating or stacked needs to re-order the actual windows
-                            let window = self.windows.remove(index);
-                            self.windows.insert(0, window);
+                            self.windows.swap(0, index);
                             self.set_focused_window(Some(0));
                             true
                         }
                         "move_focused_window_forward" => match self.focusable_window_after(index) {
                             Some(new_index) => {
-                                // Floating or stacked needs to re-order the actual windows
                                 self.windows.swap(index, new_index);
                                 self.set_focused_window(Some(new_index));
                                 true
@@ -348,7 +376,6 @@ impl Commands for Workspace {
                         "move_focused_window_backward" => match self.focusable_window_before(index)
                         {
                             Some(new_index) => {
-                                // Floating or stacked needs to re-order the actual windows
                                 self.windows.swap(index, new_index);
                                 self.set_focused_window(Some(new_index));
                                 true
@@ -357,22 +384,18 @@ impl Commands for Workspace {
                         },
                         "focus_on_next_window" => match self.focusable_window_after(index) {
                             Some(new_index) => {
-                                // Floating or stacked needs to re-order the actual windows
                                 self.set_focused_window(Some(new_index));
                                 true
                             }
                             None => false,
                         },
-                        "focus_on_previous_window" => {
-                            match self.focusable_window_before(index) {
-                                Some(new_index) => {
-                                    // Floating or stacked needs to re-order the actual windows
-                                    self.set_focused_window(Some(new_index));
-                                    true
-                                }
-                                None => false,
+                        "focus_on_previous_window" => match self.focusable_window_before(index) {
+                            Some(new_index) => {
+                                self.set_focused_window(Some(new_index));
+                                true
                             }
-                        }
+                            None => false,
+                        },
                         // "move_focused_window_to_position_of_window:" => None,
                         // "swap_focused_window_with_window:" => None,
                         _ => self.windows[index].execute_command(command, args),

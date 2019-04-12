@@ -1,10 +1,9 @@
 use crate::{artist::Artist, commands::Commands, layout::*, window_data::WindowData};
 
-pub fn new() -> GridLayout {
-    GridLayout {}
+pub fn new() -> Box<GridLayout> {
+    Box::new(GridLayout {})
 }
 
-#[derive(Clone)]
 pub struct GridLayout {}
 
 impl Layout for GridLayout {

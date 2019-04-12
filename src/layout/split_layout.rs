@@ -1,38 +1,31 @@
-use crate::{
-    artist::Artist, commands::Commands, layout::*, window_data::WindowData,
-};
+use crate::{artist::Artist, commands::Commands, layout::*, window_data::WindowData};
 
-pub fn new<A: Layout, B: Layout>(
+pub fn new(
     direction: Direction,
     axis: Axis,
     ratio: f64,
     count: usize,
-    child_a: A,
-    child_b: B,
-) -> SplitLayout<A, B> {
-    SplitLayout {
+    child_a: Box<Layout>,
+    child_b: Box<Layout>,
+) -> Box<SplitLayout> {
+    Box::new(SplitLayout {
         direction,
         axis,
         ratio,
         count,
         children: (child_a, child_b),
-    }
+    })
 }
 
-//
-//------------------------------------------------------------------
-//
-
-#[derive(Clone)]
-pub struct SplitLayout<A, B> {
+pub struct SplitLayout {
     axis: Axis,
     direction: Direction,
     ratio: f64,
     count: usize,
-    children: (A, B),
+    children: (Box<Layout>, Box<Layout>),
 }
 
-impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
+impl Layout for SplitLayout {
     fn layout(
         &self,
         rect: &Bounds,
@@ -77,7 +70,7 @@ impl<A: Layout, B: Layout> Layout for SplitLayout<A, B> {
     }
 }
 
-impl<A: Layout, B: Layout> Commands for SplitLayout<A, B> {
+impl Commands for SplitLayout {
     fn get_commands(&self) -> Vec<String> {
         let c0 = self.children.0.get_commands();
         let c1 = self.children.1.get_commands();

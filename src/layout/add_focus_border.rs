@@ -2,22 +2,21 @@ use crate::{
     artist::Artist, commands::Commands, connection::*, layout::*, window_data::WindowData,
 };
 
-pub fn new<A: Layout>(width: u8, color: (u8, u8, u8), child: A) -> AddFocusBorder<A> {
-    AddFocusBorder {
+pub fn new(width: u8, color: (u8, u8, u8), child: Box<Layout>) -> Box<AddFocusBorder> {
+    Box::new(AddFocusBorder {
         width,
         color,
         child,
-    }
+    })
 }
 
-#[derive(Clone)]
-pub struct AddFocusBorder<A: Layout> {
+pub struct AddFocusBorder {
     width: u8,
     color: (u8, u8, u8),
-    child: A,
+    child: Box<Layout>,
 }
 
-impl<A: Layout> Layout for AddFocusBorder<A> {
+impl Layout for AddFocusBorder {
     fn layout(
         &self,
         rect: &Bounds,
@@ -43,7 +42,7 @@ impl<A: Layout> Layout for AddFocusBorder<A> {
     }
 }
 
-impl<A: Layout> Commands for AddFocusBorder<A> {
+impl Commands for AddFocusBorder {
     fn get_commands(&self) -> Vec<String> {
         self.child.get_commands()
     }

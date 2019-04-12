@@ -8,7 +8,9 @@ pub enum WindowType {
 }
 
 impl Default for WindowType {
-    fn default() -> Self { WindowType::TILED }
+    fn default() -> Self {
+        WindowType::TILED
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

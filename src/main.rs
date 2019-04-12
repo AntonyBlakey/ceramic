@@ -21,5 +21,5 @@ struct Args {
 fn main() {
     let args = Args::from_args();
     args.verbosity.setup_env_logger("commando").unwrap();
-    window_manager::run();
+    window_manager::WindowManager::new(config::Configuration::new()).run();
 }

@@ -2,8 +2,8 @@ use crate::{
     artist::Artist, commands::Commands, connection::*, layout::*, window_data::WindowData,
 };
 
-pub fn new() -> StackLayout {
-    StackLayout {}
+pub fn new() -> Box<StackLayout> {
+    Box::new(StackLayout {})
 }
 
 struct StackIndicatorArtist {
@@ -38,7 +38,6 @@ impl Artist for StackIndicatorArtist {
     }
 }
 
-#[derive(Clone)]
 pub struct StackLayout {}
 
 impl Layout for StackLayout {

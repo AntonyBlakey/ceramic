@@ -1,35 +1,48 @@
-use super::{layout::*, window_manager::WindowManager};
+mod default;
+mod user;
 
-pub fn configure(wm: &mut WindowManager) {
-    for i in 1..=3 {
-        wm.add_workspace(&format!("{}", i), layouts());
+use super::{layout::*, window_data::WindowType, workspace::Workspace};
+
+pub trait ConfigurationProvider {
+    fn root(&self) -> &ConfigurationProvider;
+
+    fn workspaces(&self) -> Vec<Workspace> {
+        default::workspaces(self.root())
+    }
+
+    fn layouts(&self) -> Vec<layout_root::LayoutRoot> {
+        default::layouts(self.root())
+    }
+
+    fn layout_root(&self, name: &str, child: Box<Layout>) -> layout_root::LayoutRoot {
+        default::layout_root(self.root(), name, child)
+    }
+
+    fn classify_window(
+        &self,
+        window: xcb::Window,
+        wm_instance_name: Option<&str>,
+        wm_class_name: Option<&str>,
+        net_wm_type: &[xcb::Atom],
+        net_wm_state: &[xcb::Atom],
+        wm_transient_for: Option<xcb::Window>,
+    ) -> Option<WindowType> {
+        default::classify_window(
+            self.root(),
+            window,
+            wm_instance_name,
+            wm_class_name,
+            net_wm_type,
+            net_wm_state,
+            wm_transient_for,
+        )
     }
 }
 
-fn layouts() -> Vec<layout_root::LayoutRoot> {
-    vec![
-        // standard_layout_root(
-        //     "monad_tall_right_stack",
-        //     monad_stack(Direction::Decreasing, Axis::X, 0.75, 1),
-        // ),
-        standard_layout_root(
-            "monad_tall_right",
-            monad_layout::new_linear(Direction::Decreasing, Axis::X, 0.75, 1),
-        ),
-        standard_layout_root(
-            "monad_wide_top",
-            monad_layout::new_linear(Direction::Increasing, Axis::Y, 0.75, 1),
-        ),
-    ]
-}
+pub struct Configuration {}
 
-fn standard_layout_root<A: Layout + 'static>(name: &str, child: A) -> layout_root::LayoutRoot {
-    layout_root::new(
-        name,
-        add_window_selector_labels::new(add_focus_border::new(
-            1,
-            (0, 255, 0),
-            floating_layout::new(add_gaps::new(5, 5, child)),
-        )),
-    )
+impl Configuration {
+    pub fn new() -> Box<ConfigurationProvider> {
+        Box::new(Self {})
+    }
 }

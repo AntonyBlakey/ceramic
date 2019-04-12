@@ -254,7 +254,10 @@ pub fn get_ascii_strings_property(window: xcb::Window, name_atom: u32) -> Vec<St
         .to_vec(),
     )
     .unwrap();
-    s.trim_matches('\0').split("\0").map(|s| String::from(s)).collect()
+    s.trim_matches('\0')
+        .split("\0")
+        .map(|s| String::from(s))
+        .collect()
 }
 
 pub fn get_strings_property(window: xcb::Window, name_atom: u32) -> Vec<String> {
@@ -275,7 +278,10 @@ pub fn get_strings_property(window: xcb::Window, name_atom: u32) -> Vec<String> 
         .to_vec(),
     )
     .unwrap();
-    s.trim_matches('\0').split("\0").map(|s| String::from(s)).collect()
+    s.trim_matches('\0')
+        .split("\0")
+        .map(|s| String::from(s))
+        .collect()
 }
 
 pub fn get_window_property(window: xcb::Window, name_atom: u32) -> Option<xcb::Window> {

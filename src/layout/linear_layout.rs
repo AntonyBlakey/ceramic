@@ -1,10 +1,9 @@
 use crate::{artist::Artist, commands::Commands, layout::*, window_data::WindowData};
 
-pub fn new(direction: Direction, axis: Axis) -> LinearLayout {
-    LinearLayout { direction, axis }
+pub fn new(direction: Direction, axis: Axis) -> Box<LinearLayout> {
+    Box::new(LinearLayout { direction, axis })
 }
 
-#[derive(Clone)]
 pub struct LinearLayout {
     axis: Axis,
     direction: Direction,

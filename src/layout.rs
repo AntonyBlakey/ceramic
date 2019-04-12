@@ -1,12 +1,12 @@
 pub mod add_focus_border;
 pub mod add_gaps;
 pub mod add_window_selector_labels;
+pub mod floating_layout;
 pub mod grid_layout;
 pub mod layout_root;
 pub mod linear_layout;
 pub mod monad_layout;
 pub mod split_layout;
-pub mod floating_layout;
 pub mod stack_layout;
 
 use super::{artist::Artist, commands::Commands, window_data::WindowData};

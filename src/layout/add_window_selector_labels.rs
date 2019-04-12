@@ -3,19 +3,19 @@ use crate::{
 };
 use std::collections::HashMap;
 
-pub fn new<A: Layout>(child: A) -> AddWindowSelectorLabels<A> {
-    AddWindowSelectorLabels {
+pub fn new(child: Box<Layout>) -> Box<AddWindowSelectorLabels> {
+    Box::new(AddWindowSelectorLabels {
         is_enabled: false,
         child,
-    }
+    })
 }
 
-pub struct AddWindowSelectorLabels<A: Layout> {
+pub struct AddWindowSelectorLabels {
     is_enabled: bool,
-    child: A,
+    child: Box<Layout>,
 }
 
-impl<A: Layout> Layout for AddWindowSelectorLabels<A> {
+impl Layout for AddWindowSelectorLabels {
     fn layout(
         &self,
         rect: &Bounds,
@@ -48,7 +48,7 @@ impl<A: Layout> Layout for AddWindowSelectorLabels<A> {
     }
 }
 
-impl<A: Layout> Commands for AddWindowSelectorLabels<A> {
+impl Commands for AddWindowSelectorLabels {
     fn get_commands(&self) -> Vec<String> {
         let mut commands = self.child.get_commands();
         if self.is_enabled {

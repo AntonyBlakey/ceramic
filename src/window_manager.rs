@@ -1,40 +1,11 @@
 use super::{
-    artist::Artist,
-    commands::Commands,
-    config,
-    connection::*,
-    layout::{layout_root::LayoutRoot, Bounds},
-    window_data::WindowType,
-    workspace::Workspace,
+    artist::Artist, commands::Commands, config::ConfigurationProvider, connection::*,
+    layout::Bounds, window_data::WindowType, workspace::Workspace,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write};
 
-pub fn run() {
-    let mut wm = WindowManager::default();
-    config::configure(&mut wm);
-
-    // TODO: handle all screens}
-
-    let connection = connection();
-    let screen = connection.get_setup().roots().nth(0).unwrap();
-    let values = [(
-        xcb::CW_EVENT_MASK,
-        xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY
-            | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT
-            | xcb::EVENT_MASK_PROPERTY_CHANGE,
-    )];
-    xcb::change_window_attributes_checked(&connection, screen.root(), &values)
-        .request_check()
-        .expect("Cannot install as window manager");
-    wm.set_initial_root_window_properties();
-
-    // TODO: process all the pre-existing windows
-
-    wm.run_default_event_loop();
-}
-
-#[derive(Default)]
 pub struct WindowManager {
+    configuration: Box<ConfigurationProvider>,
     workspaces: Vec<Workspace>,
     current_workspace: usize,
     unmanaged_windows: Vec<xcb::Window>,
@@ -42,15 +13,34 @@ pub struct WindowManager {
 }
 
 impl WindowManager {
-    // public because it is called by the config
-    pub fn add_workspace(&mut self, name: &str, layouts: Vec<LayoutRoot>) {
-        self.workspaces.push(Workspace {
-            name: String::from(name),
-            windows: Default::default(),
-            focused_window: None,
-            layouts,
-            current_layout: 0,
-        })
+    pub fn new(configuration: Box<ConfigurationProvider>) -> WindowManager {
+        let workspaces = configuration.workspaces();
+        WindowManager {
+            configuration,
+            workspaces,
+            current_workspace: Default::default(),
+            unmanaged_windows: Default::default(),
+            decorations: Default::default(),
+        }
+    }
+
+    pub fn run(&mut self) {
+        let connection = connection();
+        let screen = connection.get_setup().roots().nth(0).unwrap();
+        let values = [(
+            xcb::CW_EVENT_MASK,
+            xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY
+                | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT
+                | xcb::EVENT_MASK_PROPERTY_CHANGE,
+        )];
+        xcb::change_window_attributes_checked(&connection, screen.root(), &values)
+            .request_check()
+            .expect("Cannot install as window manager");
+        self.set_initial_root_window_properties();
+
+        // TODO: process all the pre-existing windows
+
+        self.run_default_event_loop();
     }
 
     pub fn do_command(&mut self, command: &str, args: &[&str]) {
@@ -228,6 +218,7 @@ impl WindowManager {
             xcb::DESTROY_NOTIFY => {
                 let e: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(e) };
                 if !self.decorations.contains_key(&e.window()) {
+                    // TODO: remove from unmanaged windows
                     if self.workspaces[self.current_workspace].notify_window_destroyed(e.window()) {
                         self.update_layout();
                     }
@@ -237,13 +228,27 @@ impl WindowManager {
                 }
             }
 
-            xcb::CONFIGURE_REQUEST
-            | xcb::CLIENT_MESSAGE
+            xcb::CONFIGURE_REQUEST => {
+                let e: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(e) };
+                if !self.decorations.contains_key(&e.window()) {
+                    // TODO: unmanaged windows should be configured in response
+                    if self.workspaces[self.current_workspace].request_configure(e) {
+                        self.update_layout();
+                    }
+                    self.workspaces.iter_mut().for_each(|ws| {
+                        ws.request_configure(e);
+                    });
+                }
+            }
+
+            xcb::CLIENT_MESSAGE
             | xcb::CREATE_NOTIFY
             | xcb::CONFIGURE_NOTIFY
             | xcb::MAPPING_NOTIFY => (),
-            t => eprintln!("UNEXPECTED EVENT TYPE: {}", t),
+
+            _ => eprintln!("UNEXPECTED EVENT TYPE: {}", e.response_type()),
         }
+
         connection().flush();
     }
 
@@ -392,35 +397,52 @@ impl WindowManager {
     }
 
     fn classify_window(&self, window: xcb::Window) -> Option<WindowType> {
-        if let Some(owner) = get_window_property(window, xcb::ATOM_WM_TRANSIENT_FOR) {
-            eprintln!("Transient {:x} for {:x}", owner, window);
-            Some(WindowType::TRANSIENT(owner))
+        eprintln!("");
+        eprintln!("------------------------------------------------------");
+        eprintln!("Map: {:x}", window);
+
+        eprintln!("");
+        let xwininfo = std::process::Command::new("xwininfo")
+            .arg("-id")
+            .arg(format!("{}", window))
+            .output()
+            .expect("failed to xwininfo");
+        std::io::stderr().write_all(&xwininfo.stdout).unwrap();
+
+        eprintln!("");
+        let xprop = std::process::Command::new("xprop")
+            .arg("-id")
+            .arg(format!("{}", window))
+            .output()
+            .expect("failed to xprop");
+        std::io::stderr().write_all(&xprop.stdout).unwrap();
+
+        eprintln!("");
+
+        let wm_transient_for = get_window_property(window, xcb::ATOM_WM_TRANSIENT_FOR);
+        let wm_class = get_ascii_strings_property(window, xcb::ATOM_WM_CLASS);
+        let (instance_name, class_name) = if wm_class.len() == 2 {
+            (wm_class.get(0), wm_class.get(1))
         } else {
-            let window_class_strings = get_ascii_strings_property(window, xcb::ATOM_WM_CLASS);
-            eprintln!("Classes: {:?}", window_class_strings);
-            if window_class_strings.contains(&"St80".to_owned()) {
-                Some(WindowType::FLOATING)
-            } else {
-                let window_type_atoms = get_atoms_property(window, *ATOM__NET_WM_WINDOW_TYPE);
-                eprintln!("Types {:?}", window_type_atoms);
-                if window_type_atoms.is_empty() {
-                    let window_state_atoms = get_atoms_property(window, *ATOM__NET_WM_STATE);
-                    if window_state_atoms.contains(&*ATOM__NET_WM_STATE_ABOVE) {
-                        Some(WindowType::FLOATING)
-                    } else {
-                        Some(WindowType::TILED)
-                    }
-                } else if window_type_atoms.contains(&*ATOM__NET_WM_WINDOW_TYPE_NORMAL) {
-                    Some(WindowType::TILED)
-                } else if window_type_atoms.contains(&*ATOM__NET_WM_WINDOW_TYPE_DIALOG) {
-                    Some(WindowType::FLOATING)
-                } else if window_type_atoms.contains(&*ATOM__NET_WM_WINDOW_TYPE_SPLASH) {
-                    Some(WindowType::FLOATING)
-                } else {
-                    None
-                }
-            }
-        }
+            (None, None)
+        };
+        let net_wm_type = get_atoms_property(window, *ATOM__NET_WM_WINDOW_TYPE);
+        let net_wm_state = get_atoms_property(window, *ATOM__NET_WM_STATE);
+
+        let result = self.configuration.classify_window(
+            window,
+            instance_name.map(|s| s.as_str()),
+            class_name.map(|s| s.as_str()),
+            &net_wm_type,
+            &net_wm_state,
+            wm_transient_for,
+        );
+
+        eprintln!("--> {:?}", result);
+        eprintln!("======================================================");
+        eprintln!("");
+
+        result
     }
 }
 
