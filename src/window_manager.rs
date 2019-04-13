@@ -1,6 +1,11 @@
 use super::{
-    artist::Artist, commands::Commands, config::ConfigurationProvider, connection::*,
-    layout::Bounds, window_data::WindowType, workspace::Workspace,
+    artist::Artist,
+    commands::Commands,
+    config::ConfigurationProvider,
+    connection::*,
+    layout::{Bounds, Position, Size},
+    window_data::WindowType,
+    workspace::Workspace,
 };
 use std::{collections::HashMap, io::Write};
 
@@ -163,14 +168,42 @@ impl WindowManager {
 
     fn run_window_move_event_loop(&mut self, e: &xcb::ButtonPressEvent) {
         // TODO: lock out commands?
+        eprintln!("START MOVE");
         let connection = connection();
+        let mut x = e.root_x();
+        let mut y = e.root_y();
+        let window = e.event();
+        if let Some(window_data) = self.workspaces[self.current_workspace]
+            .windows
+            .iter_mut()
+            .find(|w| w.window() == window)
+        {
+            if window_data.window_type == WindowType::TILED {
+                // TODO: let the workspace do this so it can re-order the windows
+                window_data.window_type = WindowType::FLOATING;
+                self.update_layout();
+            }
+        }
         while let Some(e) = connection.wait_for_event() {
             match e.response_type() & 0x7f {
                 xcb::BUTTON_RELEASE => {
-                    let e: &xcb::ButtonReleaseEvent = unsafe { xcb::cast_event(&e) };
+                    break;
                 }
+
                 xcb::MOTION_NOTIFY => {
                     let e: &xcb::MotionNotifyEvent = unsafe { xcb::cast_event(&e) };
+                    if let Some(window_data) = self.workspaces[self.current_workspace]
+                        .windows
+                        .iter_mut()
+                        .find(|w| w.window() == window)
+                    {
+                        window_data.bounds.origin.x += e.root_x() - x;
+                        window_data.bounds.origin.y += e.root_y() - y;
+                        x = e.root_x();
+                        y = e.root_y();
+                        window_data.configure();
+                        connection.flush();
+                    }
                 }
                 _ => self.dispatch_wm_event(&e),
             }
@@ -179,14 +212,69 @@ impl WindowManager {
 
     fn run_window_resize_event_loop(&mut self, e: &xcb::ButtonPressEvent) {
         // TODO: lock out commands?
+        eprintln!("START RESIZE");
         let connection = connection();
+        let window = e.event();
+
+        let mut x = e.root_x();
+        let mut y = e.root_y();
+        
+        let mut adjust_origin_x = 0;
+        let mut adjust_origin_y = 0;
+        let mut adjust_size_width = 0;
+        let mut adjust_size_height = 0;
+        if let Some(window_data) = self.workspaces[self.current_workspace]
+            .windows
+            .iter_mut()
+            .find(|w| w.window() == window)
+        {
+            if e.event_x() < window_data.bounds.size.width as i16 / 3 {
+                adjust_origin_x = 1;
+                adjust_size_width = -1;
+            } else if window_data.bounds.size.width as i16 * 2 / 3 < e.event_x() {
+                adjust_size_width = 1;
+            }
+
+            if e.event_y() < window_data.bounds.size.height as i16 / 3 {
+                adjust_origin_y = 1;
+                adjust_size_height = -1;
+            } else if window_data.bounds.size.height as i16 * 2 / 3 < e.event_y() {
+                adjust_size_height = 1;
+            }
+
+            if window_data.window_type == WindowType::TILED {
+                // TODO: let the workspace do this so it can re-order the windows
+                window_data.window_type = WindowType::FLOATING;
+                self.update_layout();
+            }
+        }
+        
         while let Some(e) = connection.wait_for_event() {
             match e.response_type() & 0x7f {
                 xcb::BUTTON_RELEASE => {
-                    let e: &xcb::ButtonReleaseEvent = unsafe { xcb::cast_event(&e) };
+                    break;
                 }
+
                 xcb::MOTION_NOTIFY => {
                     let e: &xcb::MotionNotifyEvent = unsafe { xcb::cast_event(&e) };
+                    if let Some(window_data) = self.workspaces[self.current_workspace]
+                        .windows
+                        .iter_mut()
+                        .find(|w| w.window() == window)
+                    {
+                        let dx = e.root_x() - x;
+                        let dy = e.root_y() - y;
+                        x = e.root_x();
+                        y = e.root_y();
+
+                        window_data.bounds.origin.x += dx * adjust_origin_x;
+                        window_data.bounds.origin.y += dy * adjust_origin_y;
+                        window_data.bounds.size.width = (window_data.bounds.size.width as i16 + dx * adjust_size_width) as u16;
+                        window_data.bounds.size.height = (window_data.bounds.size.height as i16 + dy * adjust_size_height) as u16;
+
+                        window_data.configure();
+                        connection.flush();
+                    }
                 }
                 _ => self.dispatch_wm_event(&e),
             }
@@ -196,9 +284,22 @@ impl WindowManager {
     fn dispatch_wm_event(&mut self, e: &xcb::GenericEvent) {
         match e.response_type() & 0x7f {
             xcb::BUTTON_PRESS => {
-                // TODO: handle mouse events for drag/resize
                 let e: &xcb::ButtonPressEvent = unsafe { xcb::cast_event(e) };
-
+                if e.state() == 0 {
+                    self.do_command("focus_on_window:", &[format!("{}", e.event()).as_str()]);
+                    xcb::ungrab_pointer(&connection(), xcb::CURRENT_TIME);
+                    xcb::send_event(
+                        &connection(),
+                        true,
+                        e.event(),
+                        xcb::EVENT_MASK_BUTTON_PRESS,
+                        e,
+                    );
+                } else if e.state() == xcb::KEY_BUT_MASK_MOD_4 as u16 {
+                    self.run_window_move_event_loop(e);
+                } else if e.state() == (xcb::KEY_BUT_MASK_SHIFT | xcb::KEY_BUT_MASK_MOD_4) as u16 {
+                    self.run_window_resize_event_loop(e);
+                }
             }
 
             xcb::EXPOSE => {
@@ -234,7 +335,49 @@ impl WindowManager {
                             self.update_layout();
                         }
                         Some(window_type) => {
-                            // TODO: passive grab mouse events for drag/resize
+                            // TODO: use symbolic representations in the config
+                            xcb::grab_button(
+                                &connection(),
+                                false,
+                                e.window(),
+                                (xcb::EVENT_MASK_BUTTON_1_MOTION
+                                    | xcb::EVENT_MASK_BUTTON_PRESS
+                                    | xcb::EVENT_MASK_BUTTON_RELEASE)
+                                    as u16,
+                                xcb::GRAB_MODE_ASYNC as u8,
+                                xcb::GRAB_MODE_ASYNC as u8,
+                                xcb::NONE,
+                                xcb::NONE,
+                                xcb::BUTTON_INDEX_1 as u8,
+                                (xcb::KEY_BUT_MASK_SHIFT | xcb::KEY_BUT_MASK_MOD_4) as u16,
+                            );
+                            xcb::grab_button(
+                                &connection(),
+                                false,
+                                e.window(),
+                                (xcb::EVENT_MASK_BUTTON_1_MOTION
+                                    | xcb::EVENT_MASK_BUTTON_PRESS
+                                    | xcb::EVENT_MASK_BUTTON_RELEASE)
+                                    as u16,
+                                xcb::GRAB_MODE_ASYNC as u8,
+                                xcb::GRAB_MODE_ASYNC as u8,
+                                xcb::NONE,
+                                xcb::NONE,
+                                xcb::BUTTON_INDEX_1 as u8,
+                                xcb::KEY_BUT_MASK_MOD_4 as u16,
+                            );
+                            xcb::grab_button(
+                                &connection(),
+                                true,
+                                e.window(),
+                                xcb::EVENT_MASK_BUTTON_PRESS as u16,
+                                xcb::GRAB_MODE_ASYNC as u8,
+                                xcb::GRAB_MODE_ASYNC as u8,
+                                xcb::NONE,
+                                xcb::NONE,
+                                xcb::BUTTON_INDEX_1 as u8,
+                                0,
+                            );
                             if self.workspaces[self.current_workspace]
                                 .notify_window_mapped(e.window(), window_type)
                             {
@@ -247,7 +390,7 @@ impl WindowManager {
 
             xcb::UNMAP_NOTIFY => {
                 let e: &xcb::UnmapNotifyEvent = unsafe { xcb::cast_event(e) };
-                // TODO: passive ungrab mouse events for drag/resize
+                xcb::ungrab_button(&connection(), xcb::BUTTON_INDEX_1 as u8, e.window(), xcb::MOD_MASK_ANY as u16);
                 self.unmanaged_windows.remove_item(&e.window());
                 if self.workspaces[self.current_workspace].notify_window_unmapped(e.window()) {
                     self.update_layout()
@@ -435,27 +578,27 @@ impl WindowManager {
     }
 
     fn classify_window(&self, window: xcb::Window) -> Option<WindowType> {
-        eprintln!("");
-        eprintln!("------------------------------------------------------");
-        eprintln!("Map: {:x}", window);
+        // eprintln!("");
+        // eprintln!("------------------------------------------------------");
+        // eprintln!("Map: {:x}", window);
 
-        eprintln!("");
-        let xwininfo = std::process::Command::new("xwininfo")
-            .arg("-id")
-            .arg(format!("{}", window))
-            .output()
-            .expect("failed to xwininfo");
-        std::io::stderr().write_all(&xwininfo.stdout).unwrap();
+        // eprintln!("");
+        // let xwininfo = std::process::Command::new("xwininfo")
+        //     .arg("-id")
+        //     .arg(format!("{}", window))
+        //     .output()
+        //     .expect("failed to xwininfo");
+        // std::io::stderr().write_all(&xwininfo.stdout).unwrap();
 
-        eprintln!("");
-        let xprop = std::process::Command::new("xprop")
-            .arg("-id")
-            .arg(format!("{}", window))
-            .output()
-            .expect("failed to xprop");
-        std::io::stderr().write_all(&xprop.stdout).unwrap();
+        // eprintln!("");
+        // let xprop = std::process::Command::new("xprop")
+        //     .arg("-id")
+        //     .arg(format!("{}", window))
+        //     .output()
+        //     .expect("failed to xprop");
+        // std::io::stderr().write_all(&xprop.stdout).unwrap();
 
-        eprintln!("");
+        // eprintln!("");
 
         let wm_transient_for = get_window_property(window, xcb::ATOM_WM_TRANSIENT_FOR);
         let wm_class = get_ascii_strings_property(window, xcb::ATOM_WM_CLASS);
@@ -476,9 +619,9 @@ impl WindowManager {
             wm_transient_for,
         );
 
-        eprintln!("--> {:?}", result);
-        eprintln!("======================================================");
-        eprintln!("");
+        // eprintln!("--> {:?}", result);
+        // eprintln!("======================================================");
+        // eprintln!("");
 
         result
     }

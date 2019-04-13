@@ -1,0 +1,214 @@
+HTTP request sent, awaiting response... 200 OK
+Length: 252913997 (241M) [application/octet-stream]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/AllInOneDevelopmentImage-store.sou’
+
+
+
+2019-04-12 19:36:30 (27.0 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/AllInOneDevelopmentImage-store.sou’ saved [252913997/252913997]
+
+--2019-04-12 19:36:30--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/AllInOneDevelopmentImage.cha
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 526293 (514K) [application/octet-stream]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/AllInOneDevelopmentImage.cha’
+
+
+
+2019-04-12 19:36:30 (24.5 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/AllInOneDevelopmentImage.cha’ saved [526293/526293]
+
+--2019-04-12 19:36:30--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/AllInOneDevelopmentImage.im
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 206009644 (196M) [application/octet-stream]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/AllInOneDevelopmentImage.im’
+
+          AllInOneDevelopmentImage/AllInOne  22%[===================>                                                                        ]  43.61M  18.0MB/s                        AllInOneDevelopmentImage/AllInOneD  24%[=====================>                                                                      ]  48.15M  18.4MB/s                       AllInOneDevelopmentImage/AllInOneDe  26%[=======================>                                                                    ]  52.87M  18.7MB/s                      AllInOneDevelopmentImage/AllInOneDev  28%[=========================>                                                                  ]  55.65M  18.4MB/s    eta 8s           AllInOneDevelopmentImage/AllInOneDeve  30%[===========================>                                                                ]  60.06M  18.6MB/s    eta 8s          AllInOneDevelopmentImage/AllInOneDevel  31%[===========================>                                                                ]  61.39M  19.4MB/s    eta 8s         AllInOneDevelopmentImage/AllInOneDevelo  33%[==============================>                                                             ]  66.66M  20.0MB/s    eta 8s        AllInOneDevelopmentImage/AllInOneDevelop  35%[===============================>                                                            ]  70.17M  20.0MB/s    eta 8s       AllInOneDevelopmentImage/AllInOneDevelopm  36%[================================>                                                           ]  71.62M  19.4MB/s    eta 7s      AllInOneDevelopmentImage/AllInOneDevelopme  37%[=================================>                                                          ]  73.26M  18.9MB/s    eta 7s     AllInOneDevelopmentImage/AllInOneDevelopmen  40%[===================================>                                                        ]  78.80M  19.5MB/s    eta 7s     llInOneDevelopmentImage/AllInOneDevelopment  42%[======================================>                                                     ]  83.86M  19.5MB/s    eta 7s     lInOneDevelopmentImage/AllInOneDevelopmentI  45%[========================================>                                                   ]  89.50M  20.1MB/s    eta 7s     InOneDevelopmentImage/AllInOneDevelopmentIm  48%[===========================================>                                                ]  94.33M  20.2MB/s    eta 5s     nOneDevelopmentImage/AllInOneDevelopmentIma  50%[=============================================>                                              ]  99.12M  19.8MB/s    eta 5s     OneDevelopmentImage/AllInOneDevelopmentImag  53%[===============================================>                                            ] 104.49M  20.2MB/s    eta 5s     neDevelopmentImage/AllInOneDevelopmentImage  56%[==================================================>                                         ] 110.49M  20.8MB/s    eta 5s     eDevelopmentImage/AllInOneDevelopmentImage.  58%[=====================================================>                                      ] 115.33M  20.7MB/s    eta 5s     DevelopmentImage/AllInOneDevelopmentImage.i  61%[=======================================================>                                    ] 120.13M  21.3MB/s    eta 4s     evelopmentImage/AllInOneDevelopmentImage.im  63%[=========================================================>                                  ] 125.15M  21.7MB/s    eta 4s     velopmentImage/AllInOneDevelopmentImage.im   66%[===========================================================>                                ] 129.86M  22.7MB/s    eta 4s     elopmentImage/AllInOneDevelopmentImage.im    68%[==============================================================>                             ] 134.54M  22.6MB/s    eta 4s     lopmentImage/AllInOneDevelopmentImage.im     71%[================================================================>                           ] 139.52M  22.9MB/s    eta 4s     opmentImage/AllInOneDevelopmentImage.im      73%[==================================================================>                         ] 144.03M  23.9MB/s    eta 3s     pmentImage/AllInOneDevelopmentImage.im       76%[=====================================================================>                      ] 149.69M  24.9MB/s    eta 3s     mentImage/AllInOneDevelopmentImage.im        78%[=======================================================================>                    ] 154.93M  25.2MB/s    eta 3s     entImage/AllInOneDevelopmentImage.im         81%[=========================================================================>                  ] 159.51M  25.0MB/s    eta 3s     ntImage/AllInOneDevelopmentImage.im          83%[============================================================================>               ] 164.78M  25.0MB/s    eta 3s     tImage/AllInOneDevelopmentImage.im           85%[==============================================================================>             ] 168.94M  24.6MB/s    eta 1s     Image/AllInOneDevelopmentImage.im            88%[================================================================================>           ] 173.27M  24.6MB/s    eta 1s     mage/AllInOneDevelopmentImage.im             91%[==================================================================================>         ] 179.02M  24.9MB/s    eta 1s     age/AllInOneDevelopmentImage.im              94%[=====================================================================================>      ] 185.06M  24.8MB/s    eta 1s     ge/AllInOneDevelopmentImage.im               96%[=======================================================================================>    ] 189.00M  24.3MB/s    eta 1s     e/AllInOneDevelopmentImage.im                98%[=========================================================================================>  ] 193.62M  24.4MB/s    eta 0s     AllInOneDevelopmentImage/AllInOneDevelopmen 100%[===========================================================================================>] 196.47M  23.9MB/s    in 9.2s    
+
+2019-04-12 19:36:40 (21.3 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/AllInOneDevelopmentImage.im’ saved [206009644/206009644]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/CTVersion
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 4 [application/octet-stream]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/CTVersion’
+
+     0K                                                       100%  502K=0s
+
+2019-04-12 19:36:40 (502 KB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/CTVersion’ saved [4/4]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/ClientVersions.ini
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 886 [application/octet-stream]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/ClientVersions.ini’
+
+     0K                                                       100%  151M=0s
+
+2019-04-12 19:36:40 (151 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/ClientVersions.ini’ saved [886/886]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/ConfigurationTestResults.txt
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 300760 (294K) [text/plain]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/ConfigurationTestResults.txt’
+
+     0K .......... .......... .......... .......... .......... 17% 8.11M 0s
+    50K .......... .......... .......... .......... .......... 34% 8.17M 0s
+   100K .......... .......... .......... .......... .......... 51% 3.22M 0s
+   150K .......... .......... .......... .......... .......... 68% 32.0M 0s
+   200K .......... .......... .......... .......... .......... 85% 44.5M 0s
+   250K .......... .......... .......... .......... ...       100% 38.6M=0.03s
+
+2019-04-12 19:36:40 (9.29 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/ConfigurationTestResults.txt’ saved [300760/300760]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/ETSOpenAccessWebService.wsdl
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 370752 (362K) [application/octet-stream]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/ETSOpenAccessWebService.wsdl’
+
+     0K .......... .......... .......... .......... .......... 13% 17.7M 0s
+    50K .......... .......... .......... .......... .......... 27% 14.5M 0s
+   100K .......... .......... .......... .......... .......... 41% 10.2M 0s
+   150K .......... .......... .......... .......... .......... 55% 30.8M 0s
+   200K .......... .......... .......... .......... .......... 69% 20.6M 0s
+   250K .......... .......... .......... .......... .......... 82% 26.0M 0s
+   300K .......... .......... .......... .......... .......... 96% 21.8M 0s
+   350K .......... ..                                         100% 15.9M=0.02s
+
+2019-04-12 19:36:40 (17.9 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/ETSOpenAccessWebService.wsdl’ saved [370752/370752]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/ETSOpenAccessWebServiceDoc.html
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 2871150 (2.7M) [text/html]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/ETSOpenAccessWebServiceDoc.html’
+
+     0K .......... .......... .......... .......... ..........  1% 24.5M 0s
+    50K .......... .......... .......... .......... ..........  3% 29.2M 0s
+   100K .......... .......... .......... .......... ..........  5% 17.4M 0s
+   150K .......... .......... .......... .......... ..........  7% 20.9M 0s
+   200K .......... .......... .......... .......... ..........  8% 19.0M 0s
+   250K .......... .......... .......... .......... .......... 10% 20.0M 0s
+   300K .......... .......... .......... .......... .......... 12% 18.6M 0s
+   350K .......... .......... .......... .......... .......... 14% 15.9M 0s
+   400K .......... .......... .......... .......... .......... 16% 19.1M 0s
+   450K .......... .......... .......... .......... .......... 17% 21.4M 0s
+   500K .......... .......... .......... .......... .......... 19% 18.8M 0s
+   550K .......... .......... .......... .......... .......... 21% 17.6M 0s
+   600K .......... .......... .......... .......... .......... 23% 28.0M 0s
+   650K .......... .......... .......... .......... .......... 24% 25.1M 0s
+   700K .......... .......... .......... .......... .......... 26% 32.8M 0s
+   750K .......... .......... .......... .......... .......... 28% 26.9M 0s
+   800K .......... .......... .......... .......... .......... 30% 33.0M 0s
+   850K .......... .......... .......... .......... .......... 32% 27.8M 0s
+   900K .......... .......... .......... .......... .......... 33% 30.8M 0s
+   950K .......... .......... .......... .......... .......... 35% 35.9M 0s
+  1000K .......... .......... .......... .......... .......... 37% 32.3M 0s
+  1050K .......... .......... .......... .......... .......... 39% 27.9M 0s
+  1100K .......... .......... .......... .......... .......... 41% 39.3M 0s
+  1150K .......... .......... .......... .......... .......... 42% 33.2M 0s
+  1200K .......... .......... .......... .......... .......... 44% 26.6M 0s
+  1250K .......... .......... .......... .......... .......... 46% 33.4M 0s
+  1300K .......... .......... .......... .......... .......... 48% 39.6M 0s
+  1350K .......... .......... .......... .......... .......... 49% 30.4M 0s
+  1400K .......... .......... .......... .......... .......... 51% 33.5M 0s
+  1450K .......... .......... .......... .......... .......... 53% 30.8M 0s
+  1500K .......... .......... .......... .......... .......... 55% 35.7M 0s
+  1550K .......... .......... .......... .......... .......... 57% 29.4M 0s
+  1600K .......... .......... .......... .......... .......... 58% 22.9M 0s
+  1650K .......... .......... .......... .......... .......... 60% 33.4M 0s
+  1700K .......... .......... .......... .......... .......... 62% 33.4M 0s
+  1750K .......... .......... .......... .......... .......... 64% 47.6M 0s
+  1800K .......... .......... .......... .......... .......... 65% 45.5M 0s
+  1850K .......... .......... .......... .......... .......... 67% 41.0M 0s
+  1900K .......... .......... .......... .......... .......... 69% 11.0M 0s
+  1950K .......... .......... .......... .......... .......... 71% 30.6M 0s
+  2000K .......... .......... .......... .......... .......... 73% 43.8M 0s
+  2050K .......... .......... .......... .......... .......... 74% 38.5M 0s
+  2100K .......... .......... .......... .......... .......... 76% 39.5M 0s
+  2150K .......... .......... .......... .......... .......... 78% 15.5M 0s
+  2200K .......... .......... .......... .......... .......... 80% 46.2M 0s
+  2250K .......... .......... .......... .......... .......... 82% 30.8M 0s
+  2300K .......... .......... .......... .......... .......... 83% 4.83M 0s
+  2350K .......... .......... .......... .......... .......... 85% 30.7M 0s
+  2400K .......... .......... .......... .......... .......... 87% 21.8M 0s
+  2450K .......... .......... .......... .......... .......... 89% 4.12M 0s
+  2500K .......... .......... .......... .......... .......... 90% 2.67M 0s
+  2550K .......... .......... .......... .......... .......... 92% 4.03M 0s
+  2600K .......... .......... .......... .......... .......... 94% 13.8M 0s
+  2650K .......... .......... .......... .......... .......... 96% 2.69M 0s
+  2700K .......... .......... .......... .......... .......... 98% 45.4M 0s
+  2750K .......... .......... .......... .......... .......... 99% 34.0M 0s
+  2800K ...                                                   100% 7357G=0.2s
+
+2019-04-12 19:36:40 (16.6 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/ETSOpenAccessWebServiceDoc.html’ saved [2871150/2871150]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/PackagesAndVersions.txt
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 229668 (224K) [text/plain]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/PackagesAndVersions.txt’
+
+     0K .......... .......... .......... .......... .......... 22% 20.3M 0s
+    50K .......... .......... .......... .......... .......... 44% 15.6M 0s
+   100K .......... .......... .......... .......... .......... 66% 26.1M 0s
+   150K .......... .......... .......... .......... .......... 89% 30.5M 0s
+   200K .......... .......... ....                            100% 27.9M=0.01s
+
+2019-04-12 19:36:40 (22.2 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/PackagesAndVersions.txt’ saved [229668/229668]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/WindowLabels.txt
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 109 [text/plain]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/WindowLabels.txt’
+
+     0K                                                       100% 23.7M=0s
+
+2019-04-12 19:36:40 (23.7 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/WindowLabels.txt’ saved [109/109]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/startup.log
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 14501 (14K) [application/octet-stream]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/startup.log’
+
+     0K .......... ....                                       100%  113M=0s
+
+2019-04-12 19:36:40 (113 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/startup.log’ saved [14501/14501]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/toBeEvaluated
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 547 [application/octet-stream]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/toBeEvaluated’
+
+     0K                                                       100% 66.0M=0s
+
+2019-04-12 19:36:40 (66.0 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/toBeEvaluated’ saved [547/547]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/Soops83/AT%20Parser%20Compiler1489.pst
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 63853 (62K) [application/octet-stream]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/Soops83/AT Parser Compiler1489.pst’
+
+     0K .......... .......... .......... .......... .......... 80% 8.34M 0s
+    50K .......... ..                                         100% 15.3M=0.007s
+
+2019-04-12 19:36:40 (9.17 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/Soops83/AT Parser Compiler1489.pst’ saved [63853/63853]
+
+--2019-04-12 19:36:40--  http://files.soops.intern/Builds/8.3/AllInOneDevelopmentImage/20190412-0200/AllInOneDevelopmentImage/Soops83/PragmaCompilation%20Patch1449.pst
+Reusing existing connection to files.soops.intern:80.
+HTTP request sent, awaiting response... 200 OK
+Length: 3679 (3.6K) [application/octet-stream]
+Saving to: ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/Soops83/PragmaCompilation Patch1449.pst’
+
+     0K ...                                                   100%  292M=0s
+
+2019-04-12 19:36:40 (292 MB/s) - ‘/home/dev/visualworks/images/AllInOneDevelopmentImage.image/20190412-0200.version.tmp/AllInOneDevelopmentImage/Soops83/PragmaCompilation Patch1449.pst’ saved [3679/3679]
+
+FINISHED --2019-04-12 19:36:40--
+Total wall clock time: 20s
+Downloaded: 17 files, 442M in 18s (24.0 MB/s)

@@ -20,6 +20,10 @@ impl ConfigurationProvider for Configuration {
             return Some(WindowType::FLOATING);
         }
 
+        if Some("ProgressLog") == wm_instance_name {
+            return Some(WindowType::FLOATING);
+        }
+
         default::classify_window(
             self.root(),
             window,
