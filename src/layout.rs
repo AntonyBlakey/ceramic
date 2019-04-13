@@ -1,4 +1,4 @@
-pub mod add_focus_border;
+pub mod add_border;
 pub mod add_gaps;
 pub mod add_window_selector_labels;
 pub mod floating_layout;

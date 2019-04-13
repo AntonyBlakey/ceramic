@@ -168,22 +168,14 @@ impl WindowManager {
 
     fn run_window_move_event_loop(&mut self, e: &xcb::ButtonPressEvent) {
         // TODO: lock out commands?
-        eprintln!("START MOVE");
         let connection = connection();
+        let window = e.event();
+        
         let mut x = e.root_x();
         let mut y = e.root_y();
-        let window = e.event();
-        if let Some(window_data) = self.workspaces[self.current_workspace]
-            .windows
-            .iter_mut()
-            .find(|w| w.window() == window)
-        {
-            if window_data.window_type == WindowType::TILED {
-                // TODO: let the workspace do this so it can re-order the windows
-                window_data.window_type = WindowType::FLOATING;
-                self.update_layout();
-            }
-        }
+
+        self.do_command("float_window:", &[format!("{}", window).as_str()]);
+        
         while let Some(e) = connection.wait_for_event() {
             match e.response_type() & 0x7f {
                 xcb::BUTTON_RELEASE => {
@@ -212,20 +204,21 @@ impl WindowManager {
 
     fn run_window_resize_event_loop(&mut self, e: &xcb::ButtonPressEvent) {
         // TODO: lock out commands?
-        eprintln!("START RESIZE");
         let connection = connection();
         let window = e.event();
 
         let mut x = e.root_x();
         let mut y = e.root_y();
         
+        self.do_command("float_window:", &[format!("{}", window).as_str()]);
+
         let mut adjust_origin_x = 0;
         let mut adjust_origin_y = 0;
         let mut adjust_size_width = 0;
         let mut adjust_size_height = 0;
         if let Some(window_data) = self.workspaces[self.current_workspace]
             .windows
-            .iter_mut()
+            .iter()
             .find(|w| w.window() == window)
         {
             if e.event_x() < window_data.bounds.size.width as i16 / 3 {
@@ -240,12 +233,6 @@ impl WindowManager {
                 adjust_size_height = -1;
             } else if window_data.bounds.size.height as i16 * 2 / 3 < e.event_y() {
                 adjust_size_height = 1;
-            }
-
-            if window_data.window_type == WindowType::TILED {
-                // TODO: let the workspace do this so it can re-order the windows
-                window_data.window_type = WindowType::FLOATING;
-                self.update_layout();
             }
         }
         
@@ -267,6 +254,7 @@ impl WindowManager {
                         x = e.root_x();
                         y = e.root_y();
 
+                        // TODO: guard width and height > a minimum
                         window_data.bounds.origin.x += dx * adjust_origin_x;
                         window_data.bounds.origin.y += dy * adjust_origin_y;
                         window_data.bounds.size.width = (window_data.bounds.size.width as i16 + dx * adjust_size_width) as u16;

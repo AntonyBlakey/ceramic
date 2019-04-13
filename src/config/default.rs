@@ -31,8 +31,9 @@ pub fn layout_root(
 ) -> layout_root::LayoutRoot {
     layout_root::new(
         name,
-        add_window_selector_labels::new(add_focus_border::new(
+        add_window_selector_labels::new(add_border::new(
             1,
+            (127, 127, 127),
             (0, 255, 0),
             floating_layout::new(add_gaps::new(5, 5, child)),
         )),

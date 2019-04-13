@@ -131,7 +131,18 @@ impl Workspace {
     fn synchronize_focused_window_with_os(&self) {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
+        let mut windows = self
+            .windows
+            .iter()
+            .map(|w| w.window())
+            .collect::<Vec<xcb::Window>>();
         if let Some(index) = self.focused_window {
+            let head_of_segment = match self.windows[index].window_type {
+                WindowType::TRANSIENT(_) => self.insertion_position_for_transient_window(),
+                WindowType::FLOATING => self.insertion_position_for_floating_window(),
+                WindowType::TILED => self.insertion_position_for_tiled_window(),
+            };
+            windows.swap(index, head_of_segment);
             xcb::set_input_focus(
                 &connection,
                 xcb::INPUT_FOCUS_NONE as u8,
@@ -151,6 +162,16 @@ impl Workspace {
                 xcb::CURRENT_TIME,
             );
             xcb::delete_property(&connection, screen.root(), *ATOM__NET_ACTIVE_WINDOW);
+        }
+        for index in 1..windows.len() {
+            let values = [
+                (
+                    xcb::CONFIG_WINDOW_STACK_MODE as u16,
+                    xcb::STACK_MODE_ABOVE as u32,
+                ),
+                (xcb::CONFIG_WINDOW_SIBLING as u16, windows[index] as u32),
+            ];
+            xcb::configure_window(&connection, windows[index - 1], &values);
         }
     }
 
@@ -301,17 +322,23 @@ impl Commands for Workspace {
                 // TODO: this should be the count of floating vs. non-floating *focusable* windows
                 if self.windows.len() > 1 {
                     // commands.push(String::from("move_to_head_after_focusing_on_window:"));
+                    commands.push(String::from("float_window:"));
+                    commands.push(String::from("tile_window:"));
                     commands.push(String::from("focus_on_window:"));
                     commands.push(String::from("move_focused_window_to_head"));
                     commands.push(String::from("move_focused_window_forward"));
                     commands.push(String::from("move_focused_window_backward"));
+                    commands.push(String::from("focus_on_next_window_of_same_type"));
                     commands.push(String::from("focus_on_next_window"));
+                    commands.push(String::from("focus_on_previous_window_of_same_type"));
                     commands.push(String::from("focus_on_previous_window"));
                     // commands.push(String::from("move_focused_window_to_position_of_window:"));
                     // commands.push(String::from("swap_focused_window_with_window:"));
                 }
                 commands.extend(self.windows[index].get_commands().into_iter());
             } else {
+                commands.push(String::from("float_window:"));
+                commands.push(String::from("tile_window:"));
                 commands.push(String::from("focus_on_window:"));
                 // if self.windows.len() > 1 {
                 //     commands.push(String::from("move_to_head_after_focusing_on_window:"));
@@ -327,18 +354,15 @@ impl Commands for Workspace {
         } else {
             match command {
                 "switch_to_next_layout" => {
-                    eprintln!("switch to next layout");
                     self.current_layout = (self.current_layout + 1) % self.layouts.len();
                     true
                 }
                 "switch_to_previous_layout" => {
-                    eprintln!("switch to previous layout");
                     self.current_layout =
                         (self.current_layout + self.layouts.len() - 1) % self.layouts.len();
                     true
                 }
                 "switch_to_layout_named:" => {
-                    eprintln!("switch to layout named: {}", args[0]);
                     match self.layouts.iter().position(|l| l.name() == args[0]) {
                         Some(index) => {
                             self.current_layout = index;
@@ -347,6 +371,38 @@ impl Commands for Workspace {
                         None => false,
                     }
                 }
+                "tile_window:" => match args[0].parse::<u32>() {
+                    Ok(window) => match self.windows.iter().position(|w| w.window() == window) {
+                        Some(index) => {
+                            if self.windows[index].window_type != WindowType::TILED {
+                                let new_index = self.insertion_position_for_tiled_window();
+                                self.windows[index].window_type = WindowType::TILED;
+                                self.windows.swap(index, new_index);
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        None => false,
+                    },
+                    Err(_) => false,
+                },
+                "float_window:" => match args[0].parse::<u32>() {
+                    Ok(window) => match self.windows.iter().position(|w| w.window() == window) {
+                        Some(index) => {
+                            if self.windows[index].window_type == WindowType::TILED {
+                                let new_index = self.insertion_position_for_floating_window();
+                                self.windows[index].window_type = WindowType::FLOATING;
+                                self.windows.swap(index, new_index);
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        None => false,
+                    },
+                    Err(_) => false,
+                },
                 "focus_on_window:" => match args[0].parse::<u32>() {
                     Ok(window) => match self.windows.iter().position(|w| w.window() == window) {
                         Some(index) => {
@@ -365,7 +421,7 @@ impl Commands for Workspace {
                             self.set_focused_window(Some(0));
                             true
                         }
-                        "move_focused_window_forward" => match self.focusable_window_after(index) {
+                        "move_focused_window_forward" => match self.focusable_window_of_same_type_after(index) {
                             Some(new_index) => {
                                 self.windows.swap(index, new_index);
                                 self.set_focused_window(Some(new_index));
@@ -373,7 +429,7 @@ impl Commands for Workspace {
                             }
                             None => false,
                         },
-                        "move_focused_window_backward" => match self.focusable_window_before(index)
+                        "move_focused_window_backward" => match self.focusable_window_of_same_type_before(index)
                         {
                             Some(new_index) => {
                                 self.windows.swap(index, new_index);
@@ -382,7 +438,21 @@ impl Commands for Workspace {
                             }
                             None => false,
                         },
+                        "focus_on_next_window_of_same_type" => match self.focusable_window_of_same_type_after(index) {
+                            Some(new_index) => {
+                                self.set_focused_window(Some(new_index));
+                                true
+                            }
+                            None => false,
+                        },
                         "focus_on_next_window" => match self.focusable_window_after(index) {
+                            Some(new_index) => {
+                                self.set_focused_window(Some(new_index));
+                                true
+                            }
+                            None => false,
+                        },
+                        "focus_on_previous_window_of_same_type" => match self.focusable_window_of_same_type_before(index) {
                             Some(new_index) => {
                                 self.set_focused_window(Some(new_index));
                                 true
