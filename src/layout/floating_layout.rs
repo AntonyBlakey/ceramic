@@ -3,7 +3,7 @@ use crate::{
     commands::Commands,
     connection::connection,
     layout::*,
-    window_data::{WindowData, WindowType},
+    window_data::WindowData,
 };
 
 pub fn new(child: Box<Layout>) -> Box<FloatingLayout> {
@@ -22,7 +22,7 @@ impl Layout for FloatingLayout {
     ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
         let (mut floating_windows, tiled_windows): (Vec<WindowData>, Vec<WindowData>) = windows
             .into_iter()
-            .partition(|w| w.window_type != WindowType::TILED);
+            .partition(|w| w.is_floating);
         let connection = connection();
         for window in floating_windows.iter_mut() {
             if window.bounds.size.width == 0 && window.bounds.size.height == 0 {

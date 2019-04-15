@@ -1,22 +1,9 @@
 use super::{commands::Commands, connection::*, layout::Bounds};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WindowType {
-    TILED,
-    FLOATING,
-    TRANSIENT(xcb::Window),
-}
-
-impl Default for WindowType {
-    fn default() -> Self {
-        WindowType::TILED
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WindowData {
     window: xcb::Window,
-    pub window_type: WindowType,
+    pub is_floating: bool,
     pub bounds: Bounds,
     pub border_width: u8,
     pub border_color: (u8, u8, u8),
@@ -25,10 +12,9 @@ pub struct WindowData {
 }
 
 impl WindowData {
-    pub fn new(window: xcb::Window, window_type: WindowType) -> WindowData {
+    pub fn new(window: xcb::Window) -> WindowData {
         WindowData {
             window,
-            window_type,
             ..Default::default()
         }
     }

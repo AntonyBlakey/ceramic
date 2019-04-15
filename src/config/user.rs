@@ -15,13 +15,13 @@ impl ConfigurationProvider for Configuration {
         net_wm_type: &[xcb::Atom],
         net_wm_state: &[xcb::Atom],
         wm_transient_for: Option<xcb::Window>,
-    ) -> Option<WindowType> {
+    ) -> Option<bool> {
         if Some("St80") == wm_class_name {
-            return Some(WindowType::FLOATING);
+            return Some(true);
         }
 
         if Some("ProgressLog") == wm_instance_name {
-            return Some(WindowType::FLOATING);
+            return Some(true);
         }
 
         default::classify_window(

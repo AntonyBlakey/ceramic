@@ -3,11 +3,10 @@ use super::{
     commands::Commands,
     config::ConfigurationProvider,
     connection::*,
-    layout::{Bounds, Position, Size},
-    window_data::WindowType,
+    layout::Bounds,
     workspace::Workspace,
 };
-use std::{collections::HashMap, io::Write};
+use std::collections::HashMap;
 
 pub struct WindowManager {
     configuration: Box<ConfigurationProvider>,
@@ -170,12 +169,12 @@ impl WindowManager {
         // TODO: lock out commands?
         let connection = connection();
         let window = e.event();
-        
+
         let mut x = e.root_x();
         let mut y = e.root_y();
 
         self.do_command("float_window:", &[format!("{}", window).as_str()]);
-        
+
         while let Some(e) = connection.wait_for_event() {
             match e.response_type() & 0x7f {
                 xcb::BUTTON_RELEASE => {
@@ -189,10 +188,14 @@ impl WindowManager {
                         .iter_mut()
                         .find(|w| w.window() == window)
                     {
-                        window_data.bounds.origin.x += e.root_x() - x;
+                        let dx = e.root_x() - x;
+                        window_data.bounds.origin.x += dx;
+                        x += dx;
+
+                        let dy = e.root_y() - y;
                         window_data.bounds.origin.y += e.root_y() - y;
-                        x = e.root_x();
-                        y = e.root_y();
+                        y += dy;
+
                         window_data.configure();
                         connection.flush();
                     }
@@ -209,7 +212,7 @@ impl WindowManager {
 
         let mut x = e.root_x();
         let mut y = e.root_y();
-        
+
         self.do_command("float_window:", &[format!("{}", window).as_str()]);
 
         let mut adjust_origin_x = 0;
@@ -235,7 +238,7 @@ impl WindowManager {
                 adjust_size_height = 1;
             }
         }
-        
+
         while let Some(e) = connection.wait_for_event() {
             match e.response_type() & 0x7f {
                 xcb::BUTTON_RELEASE => {
@@ -249,16 +252,29 @@ impl WindowManager {
                         .iter_mut()
                         .find(|w| w.window() == window)
                     {
-                        let dx = e.root_x() - x;
-                        let dy = e.root_y() - y;
-                        x = e.root_x();
-                        y = e.root_y();
+                        // TODO: simplify this logic if possible
 
-                        // TODO: guard width and height > a minimum
+                        let mut dx = e.root_x() - x;
+                        let mut new_width =
+                            window_data.bounds.size.width as i16 + dx * adjust_size_width;
+                        if new_width < 20 {
+                            new_width = 20;
+                            dx = adjust_size_width * (20 - window_data.bounds.size.width as i16);
+                        }
+                        x += dx;
                         window_data.bounds.origin.x += dx * adjust_origin_x;
+                        window_data.bounds.size.width = new_width as u16;
+
+                        let mut dy = e.root_y() - y;
+                        let mut new_height =
+                            window_data.bounds.size.height as i16 + dy * adjust_size_height;
+                        if new_height < 20 {
+                            new_height = 20;
+                            dy = adjust_size_height * (20 - window_data.bounds.size.height as i16);
+                        }
+                        y += dy;
                         window_data.bounds.origin.y += dy * adjust_origin_y;
-                        window_data.bounds.size.width = (window_data.bounds.size.width as i16 + dx * adjust_size_width) as u16;
-                        window_data.bounds.size.height = (window_data.bounds.size.height as i16 + dy * adjust_size_height) as u16;
+                        window_data.bounds.size.height = new_height as u16;
 
                         window_data.configure();
                         connection.flush();
@@ -378,7 +394,12 @@ impl WindowManager {
 
             xcb::UNMAP_NOTIFY => {
                 let e: &xcb::UnmapNotifyEvent = unsafe { xcb::cast_event(e) };
-                xcb::ungrab_button(&connection(), xcb::BUTTON_INDEX_1 as u8, e.window(), xcb::MOD_MASK_ANY as u16);
+                xcb::ungrab_button(
+                    &connection(),
+                    xcb::BUTTON_INDEX_1 as u8,
+                    e.window(),
+                    xcb::MOD_MASK_ANY as u16,
+                );
                 self.unmanaged_windows.remove_item(&e.window());
                 if self.workspaces[self.current_workspace].notify_window_unmapped(e.window()) {
                     self.update_layout()
@@ -565,7 +586,7 @@ impl WindowManager {
         }
     }
 
-    fn classify_window(&self, window: xcb::Window) -> Option<WindowType> {
+    fn classify_window(&self, window: xcb::Window) -> Option<bool> {
         // eprintln!("");
         // eprintln!("------------------------------------------------------");
         // eprintln!("Map: {:x}", window);

@@ -1,4 +1,4 @@
-use crate::{config::*, connection::*, layout::*, window_data::WindowType, workspace::Workspace};
+use crate::{config::*, connection::*, layout::*, workspace::Workspace};
 
 pub fn workspaces(configuration: &ConfigurationProvider) -> Vec<Workspace> {
     ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
@@ -48,30 +48,30 @@ pub fn classify_window(
     net_wm_type: &[xcb::Atom],
     net_wm_state: &[xcb::Atom],
     wm_transient_for: Option<xcb::Window>,
-) -> Option<WindowType> {
+) -> Option<bool> {
     // TODO: override_redirect
 
     if let Some(_owner) = wm_transient_for {
         // TODO: is this really transient in the sense that we mean?
-        return Some(WindowType::FLOATING);
+        return Some(true);
     }
 
     if net_wm_type.is_empty() {
         if net_wm_state.contains(&*ATOM__NET_WM_STATE_ABOVE) {
-            Some(WindowType::FLOATING)
+            Some(true)
         } else {
             if wm_instance_name.is_none() {
-                Some(WindowType::TRANSIENT(0)) // TODO: clean this up - maybe Option?
+                Some(true)
             } else {
-                Some(WindowType::TILED)
+                Some(false)
             }
         }
     } else if net_wm_type.contains(&*ATOM__NET_WM_WINDOW_TYPE_NORMAL) {
-        Some(WindowType::TILED)
+        Some(false)
     } else if net_wm_type.contains(&*ATOM__NET_WM_WINDOW_TYPE_DIALOG) {
-        Some(WindowType::FLOATING)
+        Some(true)
     } else if net_wm_type.contains(&*ATOM__NET_WM_WINDOW_TYPE_SPLASH) {
-        Some(WindowType::FLOATING)
+        Some(true)
     } else {
         None
     }

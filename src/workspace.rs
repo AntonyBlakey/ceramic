@@ -1,10 +1,6 @@
 use super::{
-    artist::Artist,
-    commands::Commands,
-    connection::*,
-    layout::layout_root::LayoutRoot,
-    layout::*,
-    window_data::{WindowData, WindowType},
+    artist::Artist, commands::Commands, connection::*, layout::layout_root::LayoutRoot, layout::*,
+    window_data::WindowData,
 };
 
 pub struct Workspace {
@@ -41,11 +37,12 @@ impl Workspace {
         });
     }
 
-    pub fn notify_window_mapped(&mut self, window: xcb::Window, window_type: WindowType) -> bool {
+    pub fn notify_window_mapped(&mut self, window: xcb::Window, is_floating: bool) -> bool {
         if self.windows.iter().find(|w| w.window() == window).is_some() {
             return false;
         }
-        let data = WindowData::new(window, window_type);
+        let mut data = WindowData::new(window);
+        data.is_floating = is_floating;
         match self.focused_window {
             Some(index) => {
                 self.windows.insert(index, data);
@@ -89,7 +86,7 @@ impl Workspace {
 
     pub fn request_configure(&mut self, e: &xcb::ConfigureRequestEvent) -> bool {
         if let Some(window) = self.windows.iter_mut().find(|w| w.window() == e.window()) {
-            if window.window_type != WindowType::TILED {
+            if window.is_floating {
                 if e.value_mask() & xcb::CONFIG_WINDOW_X as u16 != 0 {
                     window.bounds.origin.x = e.x();
                 }
@@ -125,24 +122,32 @@ impl Workspace {
 
     fn set_focused_window(&mut self, w: Option<usize>) {
         self.focused_window = w;
+        match self.focused_window {
+            Some(index) => {
+                if 0 < index && self.windows[index].is_floating {
+                    let prefix = self.windows.drain(0..index).collect::<Vec<_>>();
+                    let mut insertion_position = self.insertion_position_for_tiled_window();
+                    for window in prefix.into_iter() {
+                        self.windows.insert(insertion_position, window);
+                        insertion_position += 1;
+                    }
+                    self.focused_window = Some(0);
+                }
+            }
+            _ => {}
+        }
         self.synchronize_focused_window_with_os();
     }
 
     fn synchronize_focused_window_with_os(&self) {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
-        let mut windows = self
+        let windows = self
             .windows
             .iter()
             .map(|w| w.window())
             .collect::<Vec<xcb::Window>>();
         if let Some(index) = self.focused_window {
-            let head_of_segment = match self.windows[index].window_type {
-                WindowType::TRANSIENT(_) => self.insertion_position_for_transient_window(),
-                WindowType::FLOATING => self.insertion_position_for_floating_window(),
-                WindowType::TILED => self.insertion_position_for_tiled_window(),
-            };
-            windows.swap(index, head_of_segment);
             xcb::set_input_focus(
                 &connection,
                 xcb::INPUT_FOCUS_NONE as u8,
@@ -163,7 +168,7 @@ impl Workspace {
             );
             xcb::delete_property(&connection, screen.root(), *ATOM__NET_ACTIVE_WINDOW);
         }
-        for index in 1..windows.len() {
+        for index in (1..windows.len()).rev() {
             let values = [
                 (
                     xcb::CONFIG_WINDOW_STACK_MODE as u16,
@@ -175,133 +180,54 @@ impl Workspace {
         }
     }
 
-    fn insertion_position_for_transient_window(&self) -> usize {
-        0
+    fn first_floating_window(&self) -> Option<usize> {
+        if !self.windows.is_empty() && self.windows[0].is_floating {
+            Some(0)
+        } else {
+            None
+        }
     }
 
-    fn insertion_position_for_floating_window(&self) -> usize {
-        self.windows
-            .iter()
-            .position(|w| match w.window_type {
-                WindowType::TRANSIENT(_) => false,
-                WindowType::FLOATING | WindowType::TILED => true,
-            })
-            .unwrap_or(self.windows.len())
+    fn first_tiled_window(&self) -> Option<usize> {
+        self.windows.iter().position(|w| !w.is_floating)
     }
 
     fn insertion_position_for_tiled_window(&self) -> usize {
-        self.windows
-            .iter()
-            .position(|w| match w.window_type {
-                WindowType::TRANSIENT(_) | WindowType::FLOATING => false,
-                WindowType::TILED => true,
-            })
-            .unwrap_or(self.windows.len())
+        self.first_tiled_window().unwrap_or(self.windows.len())
     }
 
-    fn first_focusable_transient_window(&self) -> Option<usize> {
-        let index = self.insertion_position_for_tiled_window();
-        self.windows.get(index).and_then(|w| {
-            if let WindowType::TRANSIENT(_) = w.window_type {
-                Some(index)
-            } else {
-                None
-            }
-        })
+    fn first_window_in_layer(&self, index: usize) -> usize {
+        if self.windows[index].is_floating {
+            0
+        } else {
+            self.first_tiled_window().unwrap()
+        }
     }
 
-    fn first_focusable_floating_window(&self) -> Option<usize> {
-        let index = self.insertion_position_for_tiled_window();
-        self.windows.get(index).and_then(|w| {
-            if let WindowType::FLOATING = w.window_type {
-                Some(index)
-            } else {
-                None
-            }
-        })
+    fn last_window_in_layer(&self, index: usize) -> usize {
+        if self.windows[index].is_floating {
+            self.first_tiled_window().unwrap() - 1
+        } else {
+            self.windows.len() - 1
+        }
     }
 
-    fn first_focusable_tiled_window(&self) -> Option<usize> {
-        let index = self.insertion_position_for_tiled_window();
-        self.windows.get(index).and_then(|w| {
-            if let WindowType::TILED = w.window_type {
-                Some(index)
-            } else {
-                None
-            }
-        })
+    fn next_window_in_layer_after(&self, index: usize) -> usize {
+        if index + 1 < self.windows.len()
+            && self.windows[index + 1].is_floating == self.windows[index].is_floating
+        {
+            index + 1
+        } else {
+            self.first_window_in_layer(index)
+        }
     }
 
-    fn focusable_window_after(&self, index: usize) -> Option<usize> {
-        for new_index in (index + 1)..self.windows.len() {
-            return Some(new_index);
+    fn previous_window_in_layer_before(&self, index: usize) -> usize {
+        if 0 < index && self.windows[index - 1].is_floating == self.windows[index].is_floating {
+            index - 1
+        } else {
+            self.last_window_in_layer(index)
         }
-
-        for new_index in 0..index {
-            return Some(new_index);
-        }
-
-        None
-    }
-
-    fn focusable_window_of_same_type_after(&self, index: usize) -> Option<usize> {
-        let (from, to) = match self.windows[index].window_type {
-            WindowType::TRANSIENT(_) => (0, self.insertion_position_for_floating_window()),
-            WindowType::FLOATING => (
-                self.insertion_position_for_floating_window(),
-                self.insertion_position_for_tiled_window(),
-            ),
-            WindowType::TILED => (
-                self.insertion_position_for_tiled_window(),
-                self.windows.len(),
-            ),
-        };
-
-        for new_index in (index + 1)..to {
-            return Some(new_index);
-        }
-
-        for new_index in from..index {
-            return Some(new_index);
-        }
-
-        None
-    }
-
-    fn focusable_window_before(&self, index: usize) -> Option<usize> {
-        for new_index in (1..=index).rev() {
-            return Some(new_index - 1);
-        }
-
-        for new_index in ((index + 2)..=self.windows.len()).rev() {
-            return Some(new_index - 1);
-        }
-
-        None
-    }
-
-    fn focusable_window_of_same_type_before(&self, index: usize) -> Option<usize> {
-        let (from, to) = match self.windows[index].window_type {
-            WindowType::TRANSIENT(_) => (0, self.insertion_position_for_floating_window()),
-            WindowType::FLOATING => (
-                self.insertion_position_for_floating_window(),
-                self.insertion_position_for_tiled_window(),
-            ),
-            WindowType::TILED => (
-                self.insertion_position_for_tiled_window(),
-                self.windows.len(),
-            ),
-        };
-
-        for new_index in ((from + 1)..=index).rev() {
-            return Some(new_index - 1);
-        }
-
-        for new_index in ((index + 2)..=to).rev() {
-            return Some(new_index - 1);
-        }
-
-        None
     }
 }
 
@@ -328,9 +254,9 @@ impl Commands for Workspace {
                     commands.push(String::from("move_focused_window_to_head"));
                     commands.push(String::from("move_focused_window_forward"));
                     commands.push(String::from("move_focused_window_backward"));
-                    commands.push(String::from("focus_on_next_window_of_same_type"));
+                    commands.push(String::from("focus_on_next_window_in_layer"));
                     commands.push(String::from("focus_on_next_window"));
-                    commands.push(String::from("focus_on_previous_window_of_same_type"));
+                    commands.push(String::from("focus_on_previous_window_in_layer"));
                     commands.push(String::from("focus_on_previous_window"));
                     // commands.push(String::from("move_focused_window_to_position_of_window:"));
                     // commands.push(String::from("swap_focused_window_with_window:"));
@@ -374,10 +300,11 @@ impl Commands for Workspace {
                 "tile_window:" => match args[0].parse::<u32>() {
                     Ok(window) => match self.windows.iter().position(|w| w.window() == window) {
                         Some(index) => {
-                            if self.windows[index].window_type != WindowType::TILED {
+                            if self.windows[index].is_floating {
                                 let new_index = self.insertion_position_for_tiled_window();
-                                self.windows[index].window_type = WindowType::TILED;
+                                self.windows[index].is_floating = true;
                                 self.windows.swap(index, new_index);
+                                self.set_focused_window(Some(new_index));
                                 true
                             } else {
                                 false
@@ -390,10 +317,11 @@ impl Commands for Workspace {
                 "float_window:" => match args[0].parse::<u32>() {
                     Ok(window) => match self.windows.iter().position(|w| w.window() == window) {
                         Some(index) => {
-                            if self.windows[index].window_type == WindowType::TILED {
-                                let new_index = self.insertion_position_for_floating_window();
-                                self.windows[index].window_type = WindowType::FLOATING;
+                            if !self.windows[index].is_floating {
+                                let new_index = 0;
+                                self.windows[index].is_floating = true;
                                 self.windows.swap(index, new_index);
+                                self.set_focused_window(Some(new_index));
                                 true
                             } else {
                                 false
@@ -416,56 +344,33 @@ impl Commands for Workspace {
                 _ => match self.focused_window {
                     Some(index) => match command {
                         "move_focused_window_to_head" => {
-                            // TODO: account for floating/non-floating
-                            self.windows.swap(0, index);
-                            self.set_focused_window(Some(0));
+                            let new_index = self.first_window_in_layer(index);
+                            self.windows.swap(index, new_index);
+                            self.set_focused_window(Some(new_index));
                             true
                         }
-                        "move_focused_window_forward" => match self.focusable_window_of_same_type_after(index) {
-                            Some(new_index) => {
-                                self.windows.swap(index, new_index);
-                                self.set_focused_window(Some(new_index));
-                                true
-                            }
-                            None => false,
-                        },
-                        "move_focused_window_backward" => match self.focusable_window_of_same_type_before(index)
-                        {
-                            Some(new_index) => {
-                                self.windows.swap(index, new_index);
-                                self.set_focused_window(Some(new_index));
-                                true
-                            }
-                            None => false,
-                        },
-                        "focus_on_next_window_of_same_type" => match self.focusable_window_of_same_type_after(index) {
-                            Some(new_index) => {
-                                self.set_focused_window(Some(new_index));
-                                true
-                            }
-                            None => false,
-                        },
-                        "focus_on_next_window" => match self.focusable_window_after(index) {
-                            Some(new_index) => {
-                                self.set_focused_window(Some(new_index));
-                                true
-                            }
-                            None => false,
-                        },
-                        "focus_on_previous_window_of_same_type" => match self.focusable_window_of_same_type_before(index) {
-                            Some(new_index) => {
-                                self.set_focused_window(Some(new_index));
-                                true
-                            }
-                            None => false,
-                        },
-                        "focus_on_previous_window" => match self.focusable_window_before(index) {
-                            Some(new_index) => {
-                                self.set_focused_window(Some(new_index));
-                                true
-                            }
-                            None => false,
-                        },
+                        "move_focused_window_forward" => {
+                            let new_index = self.next_window_in_layer_after(index);
+                            self.windows.swap(index, new_index);
+                            self.set_focused_window(Some(new_index));
+                            true
+                        }
+                        "move_focused_window_backward" => {
+                            let new_index = self.previous_window_in_layer_before(index);
+                            self.windows.swap(index, new_index);
+                            self.set_focused_window(Some(new_index));
+                            true
+                        }
+                        "focus_on_next_window" => {
+                            self.set_focused_window(Some(self.next_window_in_layer_after(index)));
+                            true
+                        }
+                        "focus_on_previous_window" => {
+                            self.set_focused_window(Some(
+                                self.previous_window_in_layer_before(index),
+                            ));
+                            true
+                        }
                         // "move_focused_window_to_position_of_window:" => None,
                         // "swap_focused_window_with_window:" => None,
                         _ => self.windows[index].execute_command(command, args),

@@ -1,7 +1,7 @@
 mod default;
 mod user;
 
-use super::{layout::*, window_data::WindowType, workspace::Workspace};
+use super::{layout::*, workspace::Workspace};
 
 pub trait ConfigurationProvider {
     fn root(&self) -> &ConfigurationProvider;
@@ -26,7 +26,7 @@ pub trait ConfigurationProvider {
         net_wm_type: &[xcb::Atom],
         net_wm_state: &[xcb::Atom],
         wm_transient_for: Option<xcb::Window>,
-    ) -> Option<WindowType> {
+    ) -> Option<bool> {
         default::classify_window(
             self.root(),
             window,
