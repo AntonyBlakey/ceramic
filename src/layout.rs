@@ -9,7 +9,8 @@ pub mod monad_layout;
 pub mod split_layout;
 pub mod stack_layout;
 
-use super::{artist::Artist, commands::Commands, window_data::WindowData};
+use super::{artist::Artist, commands::Commands, connection::connection, window_data::WindowData};
+use std::collections::HashSet;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Copy)]
 pub struct Position {
@@ -107,6 +108,50 @@ pub trait Layout: Commands {
         rect: &Bounds,
         windows: Vec<WindowData>,
     ) -> (Vec<WindowData>, Vec<Box<Artist>>);
+}
+
+pub fn clear_window_order(windows: &mut [WindowData]) {
+    for window in windows.iter_mut() {
+        window.order = None;
+    }
+}
+
+pub fn compute_window_order(windows: &mut [WindowData]) {
+    // unordered -> heads to top, others to bottom
+
+    let mut order = 1000;
+    for window in windows.iter_mut().rev().take_while(|w| w.order.is_none()) {
+        window.order = Some(order);
+        order -= 1;
+    }
+
+    let mut order = -1000;
+    for window in windows.iter_mut().filter(|w| w.order.is_none()) {
+        window.order = Some(order);
+        order += 1;
+    }
+
+    // focus -> to absolute top
+
+    let connection = connection();
+    let focused_window = xcb::get_input_focus(&connection)
+        .get_reply()
+        .unwrap()
+        .focus();
+
+    if let Some(window) = windows.iter_mut().find(|w| w.window() == focused_window) {
+        window.order = Some(2000);
+    }
+
+    // normalize order as [0.. 
+
+    let mut sorted_windows = windows.iter_mut().collect::<Vec<_>>();
+    sorted_windows.sort_by(|a, b| a.order.cmp(&b.order));
+    let mut order = 0;
+    for window in sorted_windows {
+        window.order = Some(order);
+        order += 1;
+    }
 }
 
 //

@@ -76,7 +76,7 @@ impl Layout for StackLayout {
         for window in new_windows.iter_mut() {
             window.bounds = r;
         }
-
+        compute_window_order(&mut new_windows);
         (new_windows, artists)
     }
 }

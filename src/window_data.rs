@@ -8,7 +8,7 @@ pub struct WindowData {
     pub border_width: u8,
     pub border_color: (u8, u8, u8),
     pub selector_label: String,
-    pub leader_window: Option<xcb::Window>,
+    pub order: Option<i16>,
 }
 
 impl WindowData {

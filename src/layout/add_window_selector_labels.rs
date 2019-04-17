@@ -33,7 +33,7 @@ impl Layout for AddWindowSelectorLabels {
         let mut selector_artists: HashMap<xcb::Window, WindowSelectorArtist> = HashMap::new();
         for (w, c) in new_windows.iter_mut().zip(selector_chars) {
             w.selector_label = format!("{}", c);
-            let leader = w.leader_window.unwrap_or(w.window());
+            let leader = w.window(); // w.leader_window.unwrap_or(w.window());
             let artist = selector_artists.entry(leader).or_default();
             artist.windows.push((w.selector_label.clone(), w.window()));
         }

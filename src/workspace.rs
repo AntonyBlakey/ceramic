@@ -113,6 +113,26 @@ impl Workspace {
 
         self.windows = new_windows;
 
+        let mut ordered_windows = self.windows.iter().collect::<Vec<_>>();
+        ordered_windows.sort_by(|a, b| a.order.unwrap_or(0).cmp(&b.order.unwrap_or(0)));
+
+        let connection = connection();
+        for pair in ordered_windows.windows(2) {
+            let below = pair[0];
+            let above = pair[1];
+            xcb::configure_window(
+                &connection,
+                above.window(),
+                &[
+                    (
+                        xcb::CONFIG_WINDOW_STACK_MODE as u16,
+                        xcb::STACK_MODE_ABOVE as u32,
+                    ),
+                    (xcb::CONFIG_WINDOW_SIBLING as u16, below.window() as u32),
+                ],
+            );
+        }
+
         for window in &self.windows {
             window.configure();
         }
@@ -122,20 +142,6 @@ impl Workspace {
 
     fn set_focused_window(&mut self, w: Option<usize>) {
         self.focused_window = w;
-        match self.focused_window {
-            Some(index) => {
-                if 0 < index && self.windows[index].is_floating {
-                    let prefix = self.windows.drain(0..index).collect::<Vec<_>>();
-                    let mut insertion_position = self.insertion_position_for_tiled_window();
-                    for window in prefix.into_iter() {
-                        self.windows.insert(insertion_position, window);
-                        insertion_position += 1;
-                    }
-                    self.focused_window = Some(0);
-                }
-            }
-            _ => {}
-        }
         self.synchronize_focused_window_with_os();
     }
 
@@ -167,16 +173,6 @@ impl Workspace {
                 xcb::CURRENT_TIME,
             );
             xcb::delete_property(&connection, screen.root(), *ATOM__NET_ACTIVE_WINDOW);
-        }
-        for index in (1..windows.len()).rev() {
-            let values = [
-                (
-                    xcb::CONFIG_WINDOW_STACK_MODE as u16,
-                    xcb::STACK_MODE_ABOVE as u32,
-                ),
-                (xcb::CONFIG_WINDOW_SIBLING as u16, windows[index] as u32),
-            ];
-            xcb::configure_window(&connection, windows[index - 1], &values);
         }
     }
 

@@ -42,7 +42,7 @@ impl Layout for GridLayout {
             }
             window.bounds = Bounds::new(x, y, width, height);
         }
-
+        clear_window_order(&mut new_windows);
         (new_windows, Default::default())
     }
 }

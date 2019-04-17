@@ -1,10 +1,6 @@
 use super::{
-    artist::Artist,
-    commands::Commands,
-    config::ConfigurationProvider,
-    connection::*,
-    layout::Bounds,
-    workspace::Workspace,
+    artist::Artist, commands::Commands, config::ConfigurationProvider, connection::*,
+    layout::Bounds, workspace::Workspace,
 };
 use std::collections::HashMap;
 
@@ -48,7 +44,7 @@ impl WindowManager {
     }
 
     pub fn do_command(&mut self, command: &str, args: &[&str]) {
-        eprintln!("execute command: {} {:?}", command, args);
+        // eprintln!("execute command: {} {:?}", command, args);
         if self.execute_command(command, args) {
             self.update_layout();
         }
@@ -436,7 +432,7 @@ impl WindowManager {
             | xcb::CONFIGURE_NOTIFY
             | xcb::MAPPING_NOTIFY => (),
 
-            _ => eprintln!("UNEXPECTED EVENT TYPE: {}", e.response_type()),
+            _ => (), //eprintln!("UNEXPECTED EVENT TYPE: {}", e.response_type()),
         }
 
         connection().flush();

@@ -2,7 +2,12 @@ use crate::{
     artist::Artist, commands::Commands, connection::*, layout::*, window_data::WindowData,
 };
 
-pub fn new(width: u8, color: (u8, u8, u8), focus_color: (u8, u8, u8), child: Box<Layout>) -> Box<AddBorder> {
+pub fn new(
+    width: u8,
+    color: (u8, u8, u8),
+    focus_color: (u8, u8, u8),
+    child: Box<Layout>,
+) -> Box<AddBorder> {
     Box::new(AddBorder {
         width,
         color,
@@ -32,7 +37,7 @@ impl Layout for AddBorder {
         let (mut new_windows, artists) = self.child.layout(rect, windows);
 
         for window in new_windows.iter_mut() {
-                window.border_width = self.width;
+            window.border_width = self.width;
             if window.window() == focused_window {
                 window.border_color = self.focus_color;
             } else {

@@ -37,7 +37,7 @@ impl Layout for LinearLayout {
                 }
             }
         };
-
+        clear_window_order(&mut new_windows);
         (new_windows, Default::default())
     }
 }
