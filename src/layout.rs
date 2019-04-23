@@ -143,7 +143,7 @@ pub fn compute_window_order(windows: &mut [WindowData]) {
         window.order = Some(2000);
     }
 
-    // normalize order as [0.. 
+    // normalize order as [0..
 
     let mut sorted_windows = windows.iter_mut().collect::<Vec<_>>();
     sorted_windows.sort_by(|a, b| a.order.cmp(&b.order));

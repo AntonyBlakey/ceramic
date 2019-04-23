@@ -21,6 +21,7 @@ pub fn layouts(configuration: &ConfigurationProvider) -> Vec<layout_root::Layout
             "monad_stacked",
             monad_layout::new_stack(Direction::Decreasing, Axis::X, 0.75, 1),
         ),
+        configuration.layout_root("stacked", stack_layout::new()),
     ]
 }
 

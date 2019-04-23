@@ -1,6 +1,10 @@
 use super::{
-    artist::Artist, commands::Commands, config::ConfigurationProvider, connection::*,
-    layout::Bounds, workspace::Workspace,
+    artist::Artist,
+    commands::Commands,
+    config::ConfigurationProvider,
+    connection::*,
+    layout::{Bounds, Position},
+    workspace::Workspace,
 };
 use std::collections::HashMap;
 
@@ -161,13 +165,27 @@ impl WindowManager {
         selected_label
     }
 
+    const MINIMUM_RESIZE_WIDTH: u16 = 20;
+    const MINIMUM_RESIZE_HEIGHT: u16 = 20;
+
+    const WINDOW_MOVE_KEY_MASK: xcb::KeyButMask = xcb::KEY_BUT_MASK_MOD_4;
+    const WINDOW_RESIZE_KEY_MASK: xcb::KeyButMask =
+        xcb::KEY_BUT_MASK_SHIFT | xcb::KEY_BUT_MASK_MOD_4;
+
     fn run_window_move_event_loop(&mut self, e: &xcb::ButtonPressEvent) {
         // TODO: lock out commands?
         let connection = connection();
         let window = e.event();
 
-        let mut x = e.root_x();
-        let mut y = e.root_y();
+        let origin = match self.workspaces[self.current_workspace]
+            .windows
+            .iter_mut()
+            .find(|w| w.window() == window)
+        {
+            Some(window_data) => window_data.bounds.origin,
+            None => return,
+        };
+        let mouse_down = Position::new(e.root_x(), e.root_y());
 
         self.do_command("float_window:", &[format!("{}", window).as_str()]);
 
@@ -184,13 +202,9 @@ impl WindowManager {
                         .iter_mut()
                         .find(|w| w.window() == window)
                     {
-                        let dx = e.root_x() - x;
-                        window_data.bounds.origin.x += dx;
-                        x += dx;
-
-                        let dy = e.root_y() - y;
-                        window_data.bounds.origin.y += e.root_y() - y;
-                        y += dy;
+                        let dx = e.root_x() - mouse_down.x;
+                        let dy = e.root_y() - mouse_down.y;
+                        window_data.bounds.origin = Position::new(origin.x + dx, origin.y + dy);
 
                         window_data.configure();
                         connection.flush();
@@ -253,9 +267,11 @@ impl WindowManager {
                         let mut dx = e.root_x() - x;
                         let mut new_width =
                             window_data.bounds.size.width as i16 + dx * adjust_size_width;
-                        if new_width < 20 {
-                            new_width = 20;
-                            dx = adjust_size_width * (20 - window_data.bounds.size.width as i16);
+                        if new_width < Self::MINIMUM_RESIZE_WIDTH as i16 {
+                            new_width = Self::MINIMUM_RESIZE_WIDTH as i16;
+                            dx = adjust_size_width
+                                * (Self::MINIMUM_RESIZE_WIDTH as i16
+                                    - window_data.bounds.size.width as i16);
                         }
                         x += dx;
                         window_data.bounds.origin.x += dx * adjust_origin_x;
@@ -264,9 +280,11 @@ impl WindowManager {
                         let mut dy = e.root_y() - y;
                         let mut new_height =
                             window_data.bounds.size.height as i16 + dy * adjust_size_height;
-                        if new_height < 20 {
-                            new_height = 20;
-                            dy = adjust_size_height * (20 - window_data.bounds.size.height as i16);
+                        if new_height < Self::MINIMUM_RESIZE_HEIGHT as i16 {
+                            new_height = Self::MINIMUM_RESIZE_HEIGHT as i16;
+                            dy = adjust_size_height
+                                * (Self::MINIMUM_RESIZE_HEIGHT as i16
+                                    - window_data.bounds.size.height as i16);
                         }
                         y += dy;
                         window_data.bounds.origin.y += dy * adjust_origin_y;
@@ -295,9 +313,9 @@ impl WindowManager {
                         xcb::EVENT_MASK_BUTTON_PRESS,
                         e,
                     );
-                } else if e.state() == xcb::KEY_BUT_MASK_MOD_4 as u16 {
+                } else if e.state() == Self::WINDOW_MOVE_KEY_MASK as u16 {
                     self.run_window_move_event_loop(e);
-                } else if e.state() == (xcb::KEY_BUT_MASK_SHIFT | xcb::KEY_BUT_MASK_MOD_4) as u16 {
+                } else if e.state() == Self::WINDOW_RESIZE_KEY_MASK as u16 {
                     self.run_window_resize_event_loop(e);
                 }
             }
@@ -349,7 +367,7 @@ impl WindowManager {
                                 xcb::NONE,
                                 xcb::NONE,
                                 xcb::BUTTON_INDEX_1 as u8,
-                                (xcb::KEY_BUT_MASK_SHIFT | xcb::KEY_BUT_MASK_MOD_4) as u16,
+                                Self::WINDOW_MOVE_KEY_MASK as u16,
                             );
                             xcb::grab_button(
                                 &connection(),
@@ -364,8 +382,9 @@ impl WindowManager {
                                 xcb::NONE,
                                 xcb::NONE,
                                 xcb::BUTTON_INDEX_1 as u8,
-                                xcb::KEY_BUT_MASK_MOD_4 as u16,
+                                Self::WINDOW_RESIZE_KEY_MASK as u16,
                             );
+                            // click-to-focus
                             xcb::grab_button(
                                 &connection(),
                                 true,

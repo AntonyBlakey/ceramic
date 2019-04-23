@@ -43,6 +43,14 @@ impl Workspace {
         }
         let mut data = WindowData::new(window);
         data.is_floating = is_floating;
+        if let Ok(geometry) = xcb::get_geometry(&connection(), window).get_reply() {
+            data.bounds = Bounds::new(
+                geometry.x(),
+                geometry.y(),
+                geometry.width(),
+                geometry.height(),
+            );
+        }
         match self.focused_window {
             Some(index) => {
                 self.windows.insert(index, data);

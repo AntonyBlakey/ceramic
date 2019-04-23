@@ -20,16 +20,9 @@ impl Layout for FloatingLayout {
         let (mut new_tiled_windows, artists) = self.child.layout(rect, tiled_windows);
         let floating_window_order_offset = new_tiled_windows.len() as i16;
         for window in &mut floating_windows {
-            window.order = window.order.map(|order| order + floating_window_order_offset);
-            // TODO: pick this up at creating time?
-            if window.bounds.size.height == 0 || window.bounds.size.width == 0 {
-                if let Ok(geometry) = xcb::get_geometry(&connection(), window.window()).get_reply() {
-                    window.bounds.origin.x = geometry.x();
-                    window.bounds.origin.y = geometry.y();
-                    window.bounds.size.width = geometry.width();
-                    window.bounds.size.height = geometry.height();
-                }
-            }
+            window.order = window
+                .order
+                .map(|order| order + floating_window_order_offset);
         }
         floating_windows.append(&mut new_tiled_windows);
         (floating_windows, artists)
