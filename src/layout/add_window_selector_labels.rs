@@ -31,6 +31,7 @@ impl Layout for AddWindowSelectorLabels {
 
         let selector_chars = "ASDFGHJKLQWERTYUIOPZXCVBNM1234567890".chars();
         let mut selector_artists: HashMap<xcb::Window, WindowSelectorArtist> = HashMap::new();
+        // check window is mapped, and is not e.g. the help window
         for (w, c) in new_windows.iter_mut().zip(selector_chars) {
             w.selector_label = format!("{}", c);
             let leader = w.window(); // w.leader_window.unwrap_or(w.window());

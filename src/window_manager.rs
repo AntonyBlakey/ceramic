@@ -149,9 +149,12 @@ impl WindowManager {
                     key_press_count += 1;
                 }
                 xcb::KEY_RELEASE => {
-                    key_press_count -= 1;
-                    if key_press_count == 0 {
-                        break;
+                    // We may have to eat the release from the triggering keystroke
+                    if key_press_count > 0 {
+                        key_press_count -= 1;
+                        if key_press_count == 0 {
+                            break;
+                        }
                     }
                 }
                 _ => {
@@ -602,28 +605,6 @@ impl WindowManager {
     }
 
     fn classify_window(&self, window: xcb::Window) -> Option<bool> {
-        // eprintln!("");
-        // eprintln!("------------------------------------------------------");
-        // eprintln!("Map: {:x}", window);
-
-        // eprintln!("");
-        // let xwininfo = std::process::Command::new("xwininfo")
-        //     .arg("-id")
-        //     .arg(format!("{}", window))
-        //     .output()
-        //     .expect("failed to xwininfo");
-        // std::io::stderr().write_all(&xwininfo.stdout).unwrap();
-
-        // eprintln!("");
-        // let xprop = std::process::Command::new("xprop")
-        //     .arg("-id")
-        //     .arg(format!("{}", window))
-        //     .output()
-        //     .expect("failed to xprop");
-        // std::io::stderr().write_all(&xprop.stdout).unwrap();
-
-        // eprintln!("");
-
         let wm_transient_for = get_window_property(window, xcb::ATOM_WM_TRANSIENT_FOR);
         let wm_class = get_ascii_strings_property(window, xcb::ATOM_WM_CLASS);
         let (instance_name, class_name) = if wm_class.len() == 2 {
@@ -642,11 +623,6 @@ impl WindowManager {
             &net_wm_state,
             wm_transient_for,
         );
-
-        // eprintln!("--> {:?}", result);
-        // eprintln!("======================================================");
-        // eprintln!("");
-
         result
     }
 }
