@@ -1,4 +1,4 @@
-#![feature(vec_remove_item, trait_alias, iter_copied)]
+#![feature(vec_remove_item, trait_alias)]
 #![recursion_limit = "128"]
 
 mod artist;

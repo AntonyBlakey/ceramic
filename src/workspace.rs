@@ -148,6 +148,31 @@ impl Workspace {
         artists
     }
 
+    pub fn remove_focused_window(&mut self) -> Option<WindowData> {
+        match self.focused_window {
+            Some(index) => {
+                // TODO: all of these functions need to return Option<usize>
+                let new_index = self.next_window_in_layer_after(index);
+                let w = self.windows.remove(index);
+                self.focused_window = Some(new_index);
+                Some(w)
+            }
+            None => None,
+        }
+    }
+
+    pub fn add_existing_window_and_focus(&mut self, w: WindowData) {
+        if w.is_floating {
+            let new_index = 0;
+            self.windows.insert(new_index, w);
+            self.set_focused_window(Some(new_index));
+        } else {
+            let new_index = self.insertion_position_for_tiled_window();
+            self.windows.insert(new_index, w);
+            self.set_focused_window(Some(new_index));
+        }
+    }
+
     fn set_focused_window(&mut self, w: Option<usize>) {
         self.focused_window = w;
         self.synchronize_focused_window_with_os();
@@ -156,11 +181,6 @@ impl Workspace {
     fn synchronize_focused_window_with_os(&self) {
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
-        let windows = self
-            .windows
-            .iter()
-            .map(|w| w.window())
-            .collect::<Vec<xcb::Window>>();
         if let Some(index) = self.focused_window {
             xcb::set_input_focus(
                 &connection,
@@ -249,11 +269,13 @@ impl Commands for Workspace {
         }
         if !self.windows.is_empty() {
             if let Some(index) = self.focused_window {
-                // TODO: this should be the count of floating vs. non-floating *focusable* windows
+                if self.windows[index].is_floating {
+                    commands.push(String::from("tile_focused_window"));
+                } else {
+                    commands.push(String::from("float_focused_window"));
+                }
+                // TODO: this should be the count of *focusable* windows
                 if self.windows.len() > 1 {
-                    // commands.push(String::from("move_to_head_after_focusing_on_window:"));
-                    commands.push(String::from("float_window:"));
-                    commands.push(String::from("tile_window:"));
                     commands.push(String::from("focus_on_window:"));
                     commands.push(String::from("move_focused_window_to_head"));
                     commands.push(String::from("move_focused_window_forward"));
@@ -262,17 +284,8 @@ impl Commands for Workspace {
                     commands.push(String::from("focus_on_next_window"));
                     commands.push(String::from("focus_on_previous_window_in_layer"));
                     commands.push(String::from("focus_on_previous_window"));
-                    // commands.push(String::from("move_focused_window_to_position_of_window:"));
-                    // commands.push(String::from("swap_focused_window_with_window:"));
                 }
                 commands.extend(self.windows[index].get_commands().into_iter());
-            } else {
-                commands.push(String::from("float_window:"));
-                commands.push(String::from("tile_window:"));
-                commands.push(String::from("focus_on_window:"));
-                // if self.windows.len() > 1 {
-                //     commands.push(String::from("move_to_head_after_focusing_on_window:"));
-                // }
             }
         }
         commands
@@ -301,40 +314,6 @@ impl Commands for Workspace {
                         None => false,
                     }
                 }
-                "tile_window:" => match args[0].parse::<u32>() {
-                    Ok(window) => match self.windows.iter().position(|w| w.window() == window) {
-                        Some(index) => {
-                            if self.windows[index].is_floating {
-                                let new_index = self.insertion_position_for_tiled_window();
-                                self.windows[index].is_floating = true;
-                                self.windows.swap(index, new_index);
-                                self.set_focused_window(Some(new_index));
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        None => false,
-                    },
-                    Err(_) => false,
-                },
-                "float_window:" => match args[0].parse::<u32>() {
-                    Ok(window) => match self.windows.iter().position(|w| w.window() == window) {
-                        Some(index) => {
-                            if !self.windows[index].is_floating {
-                                let new_index = 0;
-                                self.windows[index].is_floating = true;
-                                self.windows.swap(index, new_index);
-                                self.set_focused_window(Some(new_index));
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        None => false,
-                    },
-                    Err(_) => false,
-                },
                 "focus_on_window:" => match args[0].parse::<u32>() {
                     Ok(window) => match self.windows.iter().position(|w| w.window() == window) {
                         Some(index) => {
@@ -375,8 +354,28 @@ impl Commands for Workspace {
                             ));
                             true
                         }
-                        // "move_focused_window_to_position_of_window:" => None,
-                        // "swap_focused_window_with_window:" => None,
+                        "float_focused_window" => {
+                            if !self.windows[index].is_floating {
+                                let new_index = 0;
+                                self.windows[index].is_floating = true;
+                                self.windows.swap(index, new_index);
+                                self.set_focused_window(Some(new_index));
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        "tile_focused_window" => {
+                            if self.windows[index].is_floating {
+                                let new_index = self.insertion_position_for_tiled_window();
+                                self.windows[index].is_floating = true;
+                                self.windows.swap(index, new_index);
+                                self.set_focused_window(Some(new_index));
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         _ => self.windows[index].execute_command(command, args),
                     },
                     None => false,

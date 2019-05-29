@@ -631,33 +631,38 @@ impl Commands for WindowManager {
     fn get_commands(&self) -> Vec<String> {
         let mut commands = self.workspaces[self.current_workspace].get_commands();
         if self.workspaces.len() > 1 {
-            // commands.push(String::from("move_focused_window_to_workspace_named:"));
+            // if self.workspaces[self.current_workspace].has_focused_window() {
+            commands.push(String::from("move_focused_window_to_workspace_named:"));
+            // }
             commands.push(String::from("switch_to_workspace_named:"));
-            commands.push(String::from("switch_to_next_workspace"));
-            commands.push(String::from("switch_to_previous_workspace"));
         }
         commands.push(String::from("quit"));
-        // commands.push(String::from("reload"));
         commands
     }
 
     fn execute_command(&mut self, command: &str, args: &[&str]) -> bool {
         match command {
-            // "move_focused_window_to_workspace_named:" => false,
+            "move_focused_window_to_workspace_named:" => {
+                match self.workspaces.iter().position(|ws| ws.name == args[0]) {
+                    Some(new_workspace) if new_workspace != self.current_workspace => {
+                        match self.workspaces[self.current_workspace].remove_focused_window() {
+                            Some(w) => {
+                                self.workspaces[new_workspace].add_existing_window_and_focus(w);
+                                true
+                            }
+                            None => false,
+                        }
+                    }
+                    _ => false,
+                }
+            }
             "switch_to_workspace_named:" => {
                 match self.workspaces.iter().position(|ws| ws.name == args[0]) {
                     Some(new_workspace) => self.set_workspace(new_workspace),
                     _ => false,
                 }
             }
-            "switch_to_next_workspace" => {
-                self.set_workspace((self.current_workspace + 1) % self.workspaces.len())
-            }
-            "switch_to_previous_workspace" => self.set_workspace(
-                (self.current_workspace + self.workspaces.len() - 1) % self.workspaces.len(),
-            ),
             "quit" => false,
-            // "reload" => false,
             _ => self.workspaces[self.current_workspace].execute_command(command, args),
         }
     }

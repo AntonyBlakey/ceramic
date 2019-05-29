@@ -10,7 +10,6 @@ pub mod split_layout;
 pub mod stack_layout;
 
 use super::{artist::Artist, commands::Commands, connection::connection, window_data::WindowData};
-use std::collections::HashSet;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Copy)]
 pub struct Position {
