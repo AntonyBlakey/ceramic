@@ -184,7 +184,7 @@ impl Workspace {
         if let Some(index) = self.focused_window {
             xcb::set_input_focus(
                 &connection,
-                xcb::INPUT_FOCUS_NONE as u8,
+                xcb::INPUT_FOCUS_POINTER_ROOT as u8,
                 self.windows[index].window(),
                 xcb::CURRENT_TIME,
             );
@@ -196,8 +196,8 @@ impl Workspace {
         } else {
             xcb::set_input_focus(
                 &connection,
-                xcb::INPUT_FOCUS_NONE as u8,
-                xcb::NONE,
+                xcb::INPUT_FOCUS_POINTER_ROOT as u8,
+                xcb::INPUT_FOCUS_POINTER_ROOT,
                 xcb::CURRENT_TIME,
             );
             xcb::delete_property(&connection, screen.root(), *ATOM__NET_ACTIVE_WINDOW);
