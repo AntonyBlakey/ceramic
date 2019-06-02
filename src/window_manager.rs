@@ -44,6 +44,8 @@ impl WindowManager {
 
         // TODO: process all the pre-existing windows
 
+        self.workspaces[self.current_workspace].show();
+
         self.run_default_event_loop();
     }
 
@@ -306,6 +308,7 @@ impl WindowManager {
         match e.response_type() & 0x7f {
             xcb::BUTTON_PRESS => {
                 let e: &xcb::ButtonPressEvent = unsafe { xcb::cast_event(e) };
+
                 if e.state() == 0 {
                     self.do_command("focus_on_window:", &[format!("{}", e.event()).as_str()]);
                     xcb::ungrab_pointer(&connection(), xcb::CURRENT_TIME);
@@ -325,6 +328,7 @@ impl WindowManager {
 
             xcb::EXPOSE => {
                 let e: &xcb::ExposeEvent = unsafe { xcb::cast_event(e) };
+
                 if e.count() == 0 {
                     let window = e.window();
                     if let Some(artist) = self.decorations.get(&window) {
@@ -335,6 +339,7 @@ impl WindowManager {
 
             xcb::PROPERTY_NOTIFY => {
                 let e: &xcb::PropertyNotifyEvent = unsafe { xcb::cast_event(e) };
+
                 if e.atom() == *ATOM_CERAMIC_COMMAND && e.state() == xcb::PROPERTY_NEW_VALUE as u8 {
                     let command = get_string_property(e.window(), e.atom());
                     xcb::delete_property(&connection(), e.window(), e.atom());
@@ -344,95 +349,98 @@ impl WindowManager {
 
             xcb::MAP_REQUEST => {
                 let e: &xcb::MapRequestEvent = unsafe { xcb::cast_event(e) };
+
                 xcb::map_window(&connection(), e.window());
             }
 
             xcb::MAP_NOTIFY => {
                 let e: &xcb::MapNotifyEvent = unsafe { xcb::cast_event(e) };
-                if !self.decorations.contains_key(&e.window()) {
-                    match self.classify_window(e.window()) {
-                        None => {
-                            self.unmanaged_windows.push(e.window());
-                            self.update_layout();
-                        }
-                        Some(window_type) => {
-                            // TODO: use symbolic representations in the config
-                            xcb::grab_button(
-                                &connection(),
-                                false,
-                                e.window(),
-                                (xcb::EVENT_MASK_BUTTON_1_MOTION
-                                    | xcb::EVENT_MASK_BUTTON_PRESS
-                                    | xcb::EVENT_MASK_BUTTON_RELEASE)
-                                    as u16,
-                                xcb::GRAB_MODE_ASYNC as u8,
-                                xcb::GRAB_MODE_ASYNC as u8,
-                                xcb::NONE,
-                                xcb::NONE,
-                                xcb::BUTTON_INDEX_1 as u8,
-                                Self::WINDOW_MOVE_KEY_MASK as u16,
-                            );
-                            xcb::grab_button(
-                                &connection(),
-                                false,
-                                e.window(),
-                                (xcb::EVENT_MASK_BUTTON_1_MOTION
-                                    | xcb::EVENT_MASK_BUTTON_PRESS
-                                    | xcb::EVENT_MASK_BUTTON_RELEASE)
-                                    as u16,
-                                xcb::GRAB_MODE_ASYNC as u8,
-                                xcb::GRAB_MODE_ASYNC as u8,
-                                xcb::NONE,
-                                xcb::NONE,
-                                xcb::BUTTON_INDEX_1 as u8,
-                                Self::WINDOW_RESIZE_KEY_MASK as u16,
-                            );
-                            // click-to-focus
-                            xcb::grab_button(
-                                &connection(),
-                                true,
-                                e.window(),
-                                xcb::EVENT_MASK_BUTTON_PRESS as u16,
-                                xcb::GRAB_MODE_ASYNC as u8,
-                                xcb::GRAB_MODE_ASYNC as u8,
-                                xcb::NONE,
-                                xcb::NONE,
-                                xcb::BUTTON_INDEX_1 as u8,
-                                0,
-                            );
-                            if self.workspaces[self.current_workspace]
-                                .notify_window_mapped(e.window(), window_type)
-                            {
-                                self.update_layout();
-                            }
-                        }
+
+                // Add to the current workspace
+
+                if self.decorations.contains_key(&e.window()) {
+                    return;
+                }
+
+                match self.classify_window(e.window()) {
+                    None => self.unmanaged_windows.push(e.window()),
+                    Some(is_floating) => {
+                        // TODO: use symbolic representations in the config
+                        xcb::grab_button(
+                            &connection(),
+                            false,
+                            e.window(),
+                            (xcb::EVENT_MASK_BUTTON_1_MOTION
+                                | xcb::EVENT_MASK_BUTTON_PRESS
+                                | xcb::EVENT_MASK_BUTTON_RELEASE)
+                                as u16,
+                            xcb::GRAB_MODE_ASYNC as u8,
+                            xcb::GRAB_MODE_ASYNC as u8,
+                            xcb::NONE,
+                            xcb::NONE,
+                            xcb::BUTTON_INDEX_1 as u8,
+                            Self::WINDOW_MOVE_KEY_MASK as u16,
+                        );
+                        xcb::grab_button(
+                            &connection(),
+                            false,
+                            e.window(),
+                            (xcb::EVENT_MASK_BUTTON_1_MOTION
+                                | xcb::EVENT_MASK_BUTTON_PRESS
+                                | xcb::EVENT_MASK_BUTTON_RELEASE)
+                                as u16,
+                            xcb::GRAB_MODE_ASYNC as u8,
+                            xcb::GRAB_MODE_ASYNC as u8,
+                            xcb::NONE,
+                            xcb::NONE,
+                            xcb::BUTTON_INDEX_1 as u8,
+                            Self::WINDOW_RESIZE_KEY_MASK as u16,
+                        );
+                        // click-to-focus
+                        xcb::grab_button(
+                            &connection(),
+                            true,
+                            e.window(),
+                            xcb::EVENT_MASK_BUTTON_PRESS as u16,
+                            xcb::GRAB_MODE_ASYNC as u8,
+                            xcb::GRAB_MODE_ASYNC as u8,
+                            xcb::NONE,
+                            xcb::NONE,
+                            xcb::BUTTON_INDEX_1 as u8,
+                            0,
+                        );
+                        self.workspaces[self.current_workspace].add_window(e.window(), is_floating);
                     }
                 }
+
+                self.update_layout();
             }
 
             xcb::UNMAP_NOTIFY => {
                 let e: &xcb::UnmapNotifyEvent = unsafe { xcb::cast_event(e) };
+
+                self.unmanaged_windows.remove_item(&e.window());
+
+                // Remove from the current workspace
+
                 xcb::ungrab_button(
                     &connection(),
                     xcb::BUTTON_INDEX_1 as u8,
                     e.window(),
                     xcb::MOD_MASK_ANY as u16,
                 );
-                self.unmanaged_windows.remove_item(&e.window());
-                if self.workspaces[self.current_workspace].notify_window_unmapped(e.window()) {
-                    self.update_layout()
-                }
+                self.workspaces[self.current_workspace].remove_window(e.window(), false);
+                self.update_layout()
             }
 
             xcb::DESTROY_NOTIFY => {
                 let e: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(e) };
+
                 if !self.decorations.contains_key(&e.window()) {
-                    if self.workspaces[self.current_workspace].notify_window_destroyed(e.window()) {
-                        self.update_layout();
-                    }
                     self.workspaces.iter_mut().for_each(|ws| {
-                        ws.notify_window_destroyed(e.window());
+                        ws.remove_window(e.window(), true);
                     });
+                    self.update_layout();
                 }
             }
 
@@ -440,12 +448,10 @@ impl WindowManager {
                 let e: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(e) };
                 if !self.decorations.contains_key(&e.window()) {
                     // TODO: unmanaged windows should be configured in response
-                    if self.workspaces[self.current_workspace].request_configure(e) {
-                        self.update_layout();
-                    }
                     self.workspaces.iter_mut().for_each(|ws| {
                         ws.request_configure(e);
                     });
+                    self.update_layout();
                 }
             }
 
@@ -553,6 +559,7 @@ impl WindowManager {
                 *ATOM__NET_CURRENT_DESKTOP,
                 self.current_workspace as u32,
             );
+            connection.flush();
             true
         } else {
             false
@@ -631,9 +638,7 @@ impl Commands for WindowManager {
     fn get_commands(&self) -> Vec<String> {
         let mut commands = self.workspaces[self.current_workspace].get_commands();
         if self.workspaces.len() > 1 {
-            // if self.workspaces[self.current_workspace].has_focused_window() {
             commands.push(String::from("move_focused_window_to_workspace_named:"));
-            // }
             commands.push(String::from("switch_to_workspace_named:"));
         }
         commands.push(String::from("quit"));
@@ -645,12 +650,14 @@ impl Commands for WindowManager {
             "move_focused_window_to_workspace_named:" => {
                 match self.workspaces.iter().position(|ws| ws.name == args[0]) {
                     Some(new_workspace) if new_workspace != self.current_workspace => {
-                        match self.workspaces[self.current_workspace].remove_focused_window() {
-                            Some(w) => {
-                                self.workspaces[new_workspace].add_existing_window_and_focus(w);
-                                true
-                            }
-                            None => false,
+                        if let Some(window_data) =
+                            self.workspaces[self.current_workspace].remove_focused_window()
+                        {
+                            xcb::unmap_window(&connection(), window_data.window());
+                            self.workspaces[new_workspace].add_window_data(window_data);
+                            true
+                        } else {
+                            false
                         }
                     }
                     _ => false,

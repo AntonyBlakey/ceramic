@@ -5,44 +5,53 @@ use super::{
 
 pub struct Workspace {
     pub name: String,
+    pub is_visible: bool,
     pub layouts: Vec<LayoutRoot>,
     pub current_layout: usize,
-    pub windows: Vec<WindowData>,
-    pub focused_window: Option<usize>,
+    pub windows: Vec<WindowData>, // top .. bottom (floating .. tiled) ordering
+    pub number_of_floating_windows: usize,
+    pub focused_window_index: Option<usize>,
 }
 
 impl Workspace {
     pub fn new(name: &str, layouts: Vec<LayoutRoot>) -> Workspace {
         Workspace {
             name: name.into(),
+            is_visible: false,
             layouts,
             current_layout: 0,
             windows: Default::default(),
-            focused_window: None,
+            number_of_floating_windows: 0,
+            focused_window_index: None,
         }
     }
 
-    pub fn show(&self) {
+    pub fn show(&mut self) {
+        self.is_visible = true;
         let connection = connection();
-        self.windows.iter().for_each(|w| {
-            xcb::map_window(&connection, w.window());
-        });
+        for window_data in &self.windows {
+            // TODO: check if this affects the ordering
+            xcb::map_window(&connection, window_data.window());
+        }
         self.synchronize_focused_window_with_os();
     }
 
-    pub fn hide(&self) {
+    pub fn hide(&mut self) {
+        self.is_visible = false;
         let connection = connection();
-        self.windows.iter().for_each(|w| {
-            xcb::unmap_window(&connection, w.window());
-        });
+        for window_data in &self.windows {
+            xcb::unmap_window(&connection, window_data.window());
+        }
     }
 
-    pub fn notify_window_mapped(&mut self, window: xcb::Window, is_floating: bool) -> bool {
-        if self.windows.iter().find(|w| w.window() == window).is_some() {
-            return false;
+    pub fn add_window(&mut self, window: xcb::Window, is_floating: bool) {
+        if self.find_window(window).is_some() {
+            return;
         }
+
         let mut data = WindowData::new(window);
         data.is_floating = is_floating;
+
         if let Ok(geometry) = xcb::get_geometry(&connection(), window).get_reply() {
             data.bounds = Bounds::new(
                 geometry.x(),
@@ -51,49 +60,46 @@ impl Workspace {
                 geometry.height(),
             );
         }
-        match self.focused_window {
-            Some(index) => {
-                self.windows.insert(index, data);
-                self.set_focused_window(Some(index));
+
+        self.add_window_data(data);
+    }
+
+    pub fn add_window_data(&mut self, window: WindowData) {
+        let new_index = match self.focused_window_index {
+            Some(index) if self.windows[index].is_floating == window.is_floating => index,
+            _ => {
+                if window.is_floating {
+                    0
+                } else {
+                    self.number_of_floating_windows
+                }
             }
-            None => {
-                self.windows.insert(0, data);
-                self.set_focused_window(Some(0));
-            }
+        };
+
+        if window.is_floating {
+            self.number_of_floating_windows += 1;
         }
-        return true;
+
+        self.windows.insert(new_index, window);
+        self.set_focused_window(Some(new_index));
     }
 
-    pub fn notify_window_unmapped(&mut self, _window: xcb::Window) -> bool {
-        return false;
-    }
-
-    pub fn notify_window_destroyed(&mut self, window: xcb::Window) -> bool {
-        if let Some(pos) = self.windows.iter().position(|w| w.window() == window) {
-            self.windows.remove(pos);
-            if self.windows.is_empty() {
-                self.set_focused_window(None)
-            } else {
-                let new_fw = match self.focused_window {
-                    Some(index) => {
-                        if pos < index {
-                            Some(index - 1)
-                        } else {
-                            Some(index)
-                        }
-                    }
-                    _ => None,
-                };
-                self.set_focused_window(new_fw);
-            }
-            return true;
-        } else {
-            return false;
+    pub fn remove_window(&mut self, window: xcb::Window, force: bool) -> Option<WindowData> {
+        if !force && !self.is_visible {
+            return None;
         }
+        self.find_window(window)
+            .map(|index| self.remove_window_index(index))
     }
 
-    pub fn request_configure(&mut self, e: &xcb::ConfigureRequestEvent) -> bool {
-        if let Some(window) = self.windows.iter_mut().find(|w| w.window() == e.window()) {
+    pub fn remove_focused_window(&mut self) -> Option<WindowData> {
+        self.focused_window_index
+            .map(|index| self.remove_window_index(index))
+    }
+
+    pub fn request_configure(&mut self, e: &xcb::ConfigureRequestEvent) {
+        if let Some(index) = self.find_window(e.window()) {
+            let mut window = &mut self.windows[index];
             if window.is_floating {
                 if e.value_mask() & xcb::CONFIG_WINDOW_X as u16 != 0 {
                     window.bounds.origin.x = e.x();
@@ -110,7 +116,6 @@ impl Workspace {
                 window.configure();
             }
         }
-        false
     }
 
     pub fn update_layout(&mut self, bounds: &Bounds) -> Vec<Box<Artist>> {
@@ -148,40 +153,73 @@ impl Workspace {
         artists
     }
 
-    pub fn remove_focused_window(&mut self) -> Option<WindowData> {
-        match self.focused_window {
-            Some(index) => {
-                // TODO: all of these functions need to return Option<usize>
-                let new_index = self.next_window_in_layer_after(index);
-                let w = self.windows.remove(index);
-                self.focused_window = Some(new_index);
-                Some(w)
+    fn remove_window_index(&mut self, index: usize) -> WindowData {
+        let old_window = self.windows.remove(index);
+        if old_window.is_floating {
+            self.number_of_floating_windows -= 1
+        }
+        let focused_index = self.focused_window_index.unwrap();
+        self.set_focused_window(if index < focused_index {
+            Some(index - 1)
+        } else if focused_index == self.windows.len() {
+            None
+        } else {
+            Some(index)
+        });
+        old_window
+    }
+
+    fn wrapped_next_index_in_layer(&self, index: usize) -> usize {
+        if self.windows[index].is_floating {
+            if index == self.number_of_floating_windows - 1 {
+                0
+            } else {
+                index + 1
             }
-            None => None,
+        } else {
+            if index == self.windows.len() - 1 {
+                self.number_of_floating_windows
+            } else {
+                index + 1
+            }
         }
     }
 
-    pub fn add_existing_window_and_focus(&mut self, w: WindowData) {
-        if w.is_floating {
-            let new_index = 0;
-            self.windows.insert(new_index, w);
-            self.set_focused_window(Some(new_index));
+    fn wrapped_previous_index_in_layer(&self, index: usize) -> usize {
+        if self.windows[index].is_floating {
+            if index == 0 {
+                self.number_of_floating_windows - 1
+            } else {
+                index - 1
+            }
         } else {
-            let new_index = self.insertion_position_for_tiled_window();
-            self.windows.insert(new_index, w);
-            self.set_focused_window(Some(new_index));
+            if index == self.number_of_floating_windows {
+                self.windows.len() - 1
+            } else {
+                index - 1
+            }
         }
+    }
+
+    fn find_window(&self, window: xcb::Window) -> Option<usize> {
+        self.windows
+            .iter()
+            .position(|window_data| window_data.window() == window)
     }
 
     fn set_focused_window(&mut self, w: Option<usize>) {
-        self.focused_window = w;
+        self.focused_window_index = w;
         self.synchronize_focused_window_with_os();
     }
 
     fn synchronize_focused_window_with_os(&self) {
+        if !self.is_visible {
+            return;
+        }
+
         let connection = connection();
         let screen = connection.get_setup().roots().nth(0).unwrap();
-        if let Some(index) = self.focused_window {
+        if let Some(index) = self.focused_window_index {
             xcb::set_input_focus(
                 &connection,
                 xcb::INPUT_FOCUS_POINTER_ROOT as u8,
@@ -203,56 +241,6 @@ impl Workspace {
             xcb::delete_property(&connection, screen.root(), *ATOM__NET_ACTIVE_WINDOW);
         }
     }
-
-    fn first_floating_window(&self) -> Option<usize> {
-        if !self.windows.is_empty() && self.windows[0].is_floating {
-            Some(0)
-        } else {
-            None
-        }
-    }
-
-    fn first_tiled_window(&self) -> Option<usize> {
-        self.windows.iter().position(|w| !w.is_floating)
-    }
-
-    fn insertion_position_for_tiled_window(&self) -> usize {
-        self.first_tiled_window().unwrap_or(self.windows.len())
-    }
-
-    fn first_window_in_layer(&self, index: usize) -> usize {
-        if self.windows[index].is_floating {
-            0
-        } else {
-            self.first_tiled_window().unwrap()
-        }
-    }
-
-    fn last_window_in_layer(&self, index: usize) -> usize {
-        if self.windows[index].is_floating {
-            self.first_tiled_window().unwrap() - 1
-        } else {
-            self.windows.len() - 1
-        }
-    }
-
-    fn next_window_in_layer_after(&self, index: usize) -> usize {
-        if index + 1 < self.windows.len()
-            && self.windows[index + 1].is_floating == self.windows[index].is_floating
-        {
-            index + 1
-        } else {
-            self.first_window_in_layer(index)
-        }
-    }
-
-    fn previous_window_in_layer_before(&self, index: usize) -> usize {
-        if 0 < index && self.windows[index - 1].is_floating == self.windows[index].is_floating {
-            index - 1
-        } else {
-            self.last_window_in_layer(index)
-        }
-    }
 }
 
 impl Commands for Workspace {
@@ -268,7 +256,7 @@ impl Commands for Workspace {
             commands.push(String::from("switch_to_layout_named:"));
         }
         if !self.windows.is_empty() {
-            if let Some(index) = self.focused_window {
+            if let Some(index) = self.focused_window_index {
                 if self.windows[index].is_floating {
                     commands.push(String::from("tile_focused_window"));
                 } else {
@@ -324,33 +312,37 @@ impl Commands for Workspace {
                     },
                     Err(_) => false,
                 },
-                _ => match self.focused_window {
+                _ => match self.focused_window_index {
                     Some(index) => match command {
                         "move_focused_window_to_head" => {
-                            let new_index = self.first_window_in_layer(index);
+                            let new_index = if self.windows[index].is_floating {
+                                0
+                            } else {
+                                self.number_of_floating_windows
+                            };
                             self.windows.swap(index, new_index);
                             self.set_focused_window(Some(new_index));
                             true
                         }
                         "move_focused_window_forward" => {
-                            let new_index = self.next_window_in_layer_after(index);
+                            let new_index = self.wrapped_next_index_in_layer(index);
                             self.windows.swap(index, new_index);
                             self.set_focused_window(Some(new_index));
                             true
                         }
                         "move_focused_window_backward" => {
-                            let new_index = self.previous_window_in_layer_before(index);
+                            let new_index = self.wrapped_previous_index_in_layer(index);
                             self.windows.swap(index, new_index);
                             self.set_focused_window(Some(new_index));
                             true
                         }
                         "focus_on_next_window" => {
-                            self.set_focused_window(Some(self.next_window_in_layer_after(index)));
+                            self.set_focused_window(Some(self.wrapped_next_index_in_layer(index)));
                             true
                         }
                         "focus_on_previous_window" => {
                             self.set_focused_window(Some(
-                                self.previous_window_in_layer_before(index),
+                                self.wrapped_previous_index_in_layer(index),
                             ));
                             true
                         }
@@ -367,8 +359,9 @@ impl Commands for Workspace {
                         }
                         "tile_focused_window" => {
                             if self.windows[index].is_floating {
-                                let new_index = self.insertion_position_for_tiled_window();
-                                self.windows[index].is_floating = true;
+                                let new_index = self.number_of_floating_windows;
+                                self.number_of_floating_windows -= 1;
+                                self.windows[index].is_floating = false;
                                 self.windows.swap(index, new_index);
                                 self.set_focused_window(Some(new_index));
                                 true

@@ -74,7 +74,8 @@ impl Commands for WindowData {
     fn execute_command(&mut self, command: &str, _args: &[&str]) -> bool {
         match command {
             "close_focused_window" => {
-                xcb::kill_client(&connection(), self.window);
+                // This isn't the correct call
+                // xcb::kill_client(&connection(), self.window);
                 // destruction of window will trigger layout update
                 false
             }
