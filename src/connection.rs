@@ -1,21 +1,18 @@
 use cairo::XCBSurface;
 use lazy_static::lazy_static;
-use std::rc::Rc;
 
-static mut CONNECTION: Option<Rc<xcb::Connection>> = None;
-pub fn connection() -> Rc<xcb::Connection> {
+pub fn connection() -> &'static xcb::Connection {
+    static mut CONNECTION: Option<xcb::Connection> = None;
     unsafe {
-        CONNECTION
-            .get_or_insert_with(|| {
-                let (connection, _screen_number) = xcb::Connection::connect(None).unwrap();
-                Rc::new(connection)
-            })
-            .clone()
+        CONNECTION.get_or_insert_with(|| {
+            let (connection, _screen_number) = xcb::Connection::connect(None).unwrap();
+            connection
+        })
     }
 }
 
 pub fn get_atom(name: &str) -> u32 {
-    xcb::intern_atom(&connection(), false, name)
+    xcb::intern_atom(connection(), false, name)
         .get_reply()
         .unwrap()
         .atom()
@@ -98,7 +95,7 @@ pub fn set_cardinal_property(window: xcb::Window, name_atom: u32, value: u32) {
 
 pub fn set_cardinals_property(window: xcb::Window, name_atom: u32, values: &[u32]) {
     xcb::change_property(
-        &connection(),
+        connection(),
         xcb::PROP_MODE_REPLACE as u8,
         window,
         name_atom,
@@ -110,7 +107,7 @@ pub fn set_cardinals_property(window: xcb::Window, name_atom: u32, values: &[u32
 
 pub fn set_string_property(window: xcb::Window, name_atom: u32, value: &str) {
     xcb::change_property(
-        &connection(),
+        connection(),
         xcb::PROP_MODE_REPLACE as u8,
         window,
         name_atom,
@@ -122,7 +119,7 @@ pub fn set_string_property(window: xcb::Window, name_atom: u32, value: &str) {
 
 pub fn set_strings_property(window: xcb::Window, name_atom: u32, values: &[&str]) {
     xcb::change_property(
-        &connection(),
+        connection(),
         xcb::PROP_MODE_REPLACE as u8,
         window,
         name_atom,
@@ -143,7 +140,7 @@ pub fn set_window_property(window: xcb::Window, name_atom: u32, value: xcb::Wind
 
 pub fn set_windows_property(window: xcb::Window, name_atom: u32, values: &[xcb::Window]) {
     xcb::change_property(
-        &connection(),
+        connection(),
         xcb::PROP_MODE_REPLACE as u8,
         window,
         name_atom,
@@ -159,7 +156,7 @@ pub fn set_atom_property(window: xcb::Window, name_atom: u32, value: u32) {
 
 pub fn set_atoms_property(window: xcb::Window, name_atom: u32, values: &[u32]) {
     xcb::change_property(
-        &connection(),
+        connection(),
         xcb::PROP_MODE_REPLACE as u8,
         window,
         name_atom,
@@ -180,8 +177,8 @@ pub fn get_cardinal_property(window: xcb::Window, name_atom: u32) -> Option<u32>
 
 pub fn get_cardinals_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
     // TODO: handle case where property is bigger than we allowed for
-    match xcb::get_property(
-        &connection(),
+    xcb::get_property(
+        connection(),
         false,
         window,
         name_atom,
@@ -190,98 +187,86 @@ pub fn get_cardinals_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
         32,
     )
     .get_reply()
-    {
-        Ok(value) => value.value().to_vec(),
-        _ => Default::default(),
-    }
+    .map(|reply| reply.value().to_vec())
+    .unwrap_or_default()
 }
 
 pub fn get_ascii_string_property(window: xcb::Window, name_atom: u32) -> String {
     // TODO: find a better method to go from ascii (latin-1?) to utf-8.
-    String::from_utf8(
-        xcb::get_property(
-            &connection(),
-            false,
-            window,
-            name_atom,
-            xcb::ATOM_STRING,
-            0,
-            1024,
-        )
-        .get_reply()
-        .unwrap()
-        .value()
-        .to_vec(),
+    xcb::get_property(
+        connection(),
+        false,
+        window,
+        name_atom,
+        xcb::ATOM_STRING,
+        0,
+        1024,
     )
-    .unwrap()
+    .get_reply()
+    .map(|reply| String::from_utf8(reply.value().to_vec()).unwrap_or_default())
+    .unwrap_or_default()
 }
 
 pub fn get_string_property(window: xcb::Window, name_atom: u32) -> String {
-    String::from_utf8(
-        xcb::get_property(
-            &connection(),
-            false,
-            window,
-            name_atom,
-            *ATOM_UTF8_STRING,
-            0,
-            1024,
-        )
-        .get_reply()
-        .unwrap()
-        .value()
-        .to_vec(),
+    xcb::get_property(
+        connection(),
+        false,
+        window,
+        name_atom,
+        *ATOM_UTF8_STRING,
+        0,
+        1024,
     )
-    .unwrap()
+    .get_reply()
+    .map(|reply| String::from_utf8(reply.value().to_vec()).unwrap_or_default())
+    .unwrap_or_default()
 }
 
 pub fn get_ascii_strings_property(window: xcb::Window, name_atom: u32) -> Vec<String> {
     // TODO: handle case where property is bigger than we allowed for
     // TODO: find a better method to go from ascii (latin-1?) to utf-8.
-    let s: String = String::from_utf8(
-        xcb::get_property(
-            &connection(),
-            false,
-            window,
-            name_atom,
-            xcb::ATOM_STRING,
-            0,
-            1024,
-        )
-        .get_reply()
-        .unwrap()
-        .value()
-        .to_vec(),
+    xcb::get_property(
+        connection(),
+        false,
+        window,
+        name_atom,
+        xcb::ATOM_STRING,
+        0,
+        1024,
     )
-    .unwrap();
-    s.trim_matches('\0')
-        .split("\0")
-        .map(|s| String::from(s))
-        .collect()
+    .get_reply()
+    .map(|reply| {
+        String::from_utf8(reply.value().to_vec())
+            .unwrap_or_default()
+            .trim_matches('\0')
+            .split("\0")
+            .map(|s| String::from(s))
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 pub fn get_strings_property(window: xcb::Window, name_atom: u32) -> Vec<String> {
     // TODO: handle case where property is bigger than we allowed for
-    let s: String = String::from_utf8(
-        xcb::get_property(
-            &connection(),
-            false,
-            window,
-            name_atom,
-            *ATOM_UTF8_STRING,
-            0,
-            1024,
-        )
-        .get_reply()
-        .unwrap()
-        .value()
-        .to_vec(),
+    xcb::get_property(
+        connection(),
+        false,
+        window,
+        name_atom,
+        *ATOM_UTF8_STRING,
+        0,
+        1024,
     )
-    .unwrap();
-    s.trim_matches('\0')
-        .split("\0")
-        .map(|s| String::from(s))
-        .collect()
+    .get_reply()
+    .map(|reply| {
+        String::from_utf8(reply.value().to_vec())
+            .unwrap_or_default()
+            .trim_matches('\0')
+            .split("\0")
+            .map(|s| String::from(s))
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 pub fn get_window_property(window: xcb::Window, name_atom: u32) -> Option<xcb::Window> {
@@ -296,7 +281,7 @@ pub fn get_window_property(window: xcb::Window, name_atom: u32) -> Option<xcb::W
 pub fn get_windows_property(window: xcb::Window, name_atom: u32) -> Vec<xcb::Window> {
     // TODO: handle case where property is bigger than we allowed for
     xcb::get_property(
-        &connection(),
+        connection(),
         false,
         window,
         name_atom,
@@ -305,9 +290,8 @@ pub fn get_windows_property(window: xcb::Window, name_atom: u32) -> Vec<xcb::Win
         32,
     )
     .get_reply()
-    .unwrap()
-    .value()
-    .to_vec()
+    .map(|reply| reply.value().to_vec())
+    .unwrap_or_default()
 }
 
 pub fn get_atom_property(window: xcb::Window, name_atom: u32) -> Option<u32> {
@@ -321,8 +305,8 @@ pub fn get_atom_property(window: xcb::Window, name_atom: u32) -> Option<u32> {
 
 pub fn get_atoms_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
     // TODO: handle case where property is bigger than we allowed for
-    match xcb::get_property(
-        &connection(),
+    xcb::get_property(
+        connection(),
         false,
         window,
         name_atom,
@@ -331,10 +315,52 @@ pub fn get_atoms_property(window: xcb::Window, name_atom: u32) -> Vec<u32> {
         32,
     )
     .get_reply()
+    .map(|reply| reply.value().to_vec())
+    .unwrap_or_default()
+}
+
+pub fn grab_keyboard() {
+    let root = connection().get_setup().roots().nth(0).unwrap().root();
+    match xcb::xproto::grab_keyboard(
+        connection(),
+        false,
+        root,
+        xcb::CURRENT_TIME,
+        xcb::GRAB_MODE_ASYNC as u8,
+        xcb::GRAB_MODE_SYNC as u8,
+    )
+    .get_reply()
+    .unwrap()
+    .status() as u32
     {
-        Ok(value) => value.value().to_vec(),
-        _ => Default::default(),
+        xcb::xproto::GRAB_STATUS_SUCCESS => log::debug!("Grab keyboard: Success"),
+        xcb::xproto::GRAB_STATUS_ALREADY_GRABBED => log::debug!("Grab keyboard: Already Grabbed"),
+        xcb::xproto::GRAB_STATUS_INVALID_TIME => log::debug!("Grab keyboard: Invalid Time"),
+        xcb::xproto::GRAB_STATUS_NOT_VIEWABLE => log::debug!("Grab keyboard: Not Viewable"),
+        xcb::xproto::GRAB_STATUS_FROZEN => log::debug!("Grab keyboard: Frozen"),
+        x => log::debug!("Grab keyboard: Unknown status: {}", x),
     }
+    connection().flush();
+}
+
+pub fn ungrab_keyboard() {
+    log::debug!("Ungrab keyboard");
+    xcb::xproto::ungrab_keyboard(connection(), xcb::CURRENT_TIME);
+    connection().flush();
+}
+
+pub fn allow_events() {
+    xcb::xproto::allow_events(
+        connection(),
+        xcb::ALLOW_SYNC_KEYBOARD as u8,
+        xcb::CURRENT_TIME,
+    );
+    connection().flush();
+}
+
+pub fn wait_for_event() -> Option<xcb::base::GenericEvent> {
+    allow_events();
+    connection().wait_for_event()
 }
 
 pub fn get_cairo_surface(window: xcb::Window) -> Result<cairo::Surface, xcb::GenericError> {

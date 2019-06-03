@@ -20,6 +20,6 @@ struct Args {
 
 fn main() {
     let args = Args::from_args();
-    args.verbosity.setup_env_logger("commando").unwrap();
+    args.verbosity.setup_env_logger("ceramic").unwrap();
     window_manager::WindowManager::new(config::Configuration::new()).run();
 }

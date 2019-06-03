@@ -37,7 +37,7 @@ impl WindowManager {
                 | xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT
                 | xcb::EVENT_MASK_PROPERTY_CHANGE,
         )];
-        xcb::change_window_attributes_checked(&connection, screen.root(), &values)
+        xcb::change_window_attributes_checked(connection, screen.root(), &values)
             .request_check()
             .expect("Cannot install as window manager");
         self.set_initial_root_window_properties();
@@ -61,7 +61,7 @@ impl WindowManager {
         let screen = connection.get_setup().roots().nth(0).unwrap();
         let check_window_id = connection.generate_id();
         xcb::create_window(
-            &connection,
+            connection,
             xcb::COPY_FROM_PARENT as u8,
             check_window_id,
             screen.root(),
@@ -118,23 +118,22 @@ impl WindowManager {
     }
 
     fn run_default_event_loop(&mut self) {
-        let connection = connection();
-        while let Some(e) = connection.wait_for_event() {
+        while let Some(e) = wait_for_event() {
             self.dispatch_wm_event(&e);
         }
     }
 
     fn run_keygrab_event_loop(&mut self) -> Option<String> {
+        log::debug!("Enter grab loop");
         let mut key_press_count = 0;
         let mut selected_label: Option<String> = None;
         grab_keyboard();
-        allow_events();
-        let connection = connection();
-        let key_symbols = xcb_util::keysyms::KeySymbols::new(&connection);
-        while let Some(e) = connection.wait_for_event() {
+        let key_symbols = xcb_util::keysyms::KeySymbols::new(connection());
+        while let Some(e) = wait_for_event() {
             match e.response_type() & 0x7f {
                 xcb::KEY_PRESS => {
                     let press_event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
+                    log::debug!("KEY_PRESS in grab loop");
                     if key_press_count == 0 {
                         let keycode = press_event.detail();
                         let keysym = key_symbols.get_keysym(keycode, 0);
@@ -151,7 +150,8 @@ impl WindowManager {
                     key_press_count += 1;
                 }
                 xcb::KEY_RELEASE => {
-                    // We may have to eat the release from the triggering keystroke
+                    // We may have to eat some release(s) from the triggering keystroke
+                    log::debug!("KEY_RELEASE in grab loop");
                     if key_press_count > 0 {
                         key_press_count -= 1;
                         if key_press_count == 0 {
@@ -163,10 +163,9 @@ impl WindowManager {
                     self.dispatch_wm_event(&e);
                 }
             }
-            allow_events();
         }
         ungrab_keyboard();
-        allow_events();
+        log::debug!("Exit grab loop with {:?}", selected_label);
         selected_label
     }
 
@@ -179,7 +178,6 @@ impl WindowManager {
 
     fn run_window_move_event_loop(&mut self, e: &xcb::ButtonPressEvent) {
         // TODO: lock out commands?
-        let connection = connection();
         let window = e.event();
 
         let origin = match self.workspaces[self.current_workspace]
@@ -194,7 +192,7 @@ impl WindowManager {
 
         self.do_command("float_window:", &[format!("{}", window).as_str()]);
 
-        while let Some(e) = connection.wait_for_event() {
+        while let Some(e) = wait_for_event() {
             match e.response_type() & 0x7f {
                 xcb::BUTTON_RELEASE => {
                     break;
@@ -212,7 +210,7 @@ impl WindowManager {
                         window_data.bounds.origin = Position::new(origin.x + dx, origin.y + dy);
 
                         window_data.configure();
-                        connection.flush();
+                        connection().flush();
                     }
                 }
                 _ => self.dispatch_wm_event(&e),
@@ -222,7 +220,6 @@ impl WindowManager {
 
     fn run_window_resize_event_loop(&mut self, e: &xcb::ButtonPressEvent) {
         // TODO: lock out commands?
-        let connection = connection();
         let window = e.event();
 
         let mut x = e.root_x();
@@ -254,7 +251,7 @@ impl WindowManager {
             }
         }
 
-        while let Some(e) = connection.wait_for_event() {
+        while let Some(e) = wait_for_event() {
             match e.response_type() & 0x7f {
                 xcb::BUTTON_RELEASE => {
                     break;
@@ -296,7 +293,7 @@ impl WindowManager {
                         window_data.bounds.size.height = new_height as u16;
 
                         window_data.configure();
-                        connection.flush();
+                        connection().flush();
                     }
                 }
                 _ => self.dispatch_wm_event(&e),
@@ -311,7 +308,7 @@ impl WindowManager {
 
                 if e.state() == 0 {
                     self.do_command("focus_on_window:", &[format!("{}", e.event()).as_str()]);
-                    xcb::ungrab_pointer(&connection(), xcb::CURRENT_TIME);
+                    xcb::ungrab_pointer(connection(), xcb::CURRENT_TIME);
                     xcb::send_event(
                         &connection(),
                         true,
@@ -367,7 +364,7 @@ impl WindowManager {
                     Some(is_floating) => {
                         // TODO: use symbolic representations in the config
                         xcb::grab_button(
-                            &connection(),
+                            connection(),
                             false,
                             e.window(),
                             (xcb::EVENT_MASK_BUTTON_1_MOTION
@@ -382,7 +379,7 @@ impl WindowManager {
                             Self::WINDOW_MOVE_KEY_MASK as u16,
                         );
                         xcb::grab_button(
-                            &connection(),
+                            connection(),
                             false,
                             e.window(),
                             (xcb::EVENT_MASK_BUTTON_1_MOTION
@@ -398,7 +395,7 @@ impl WindowManager {
                         );
                         // click-to-focus
                         xcb::grab_button(
-                            &connection(),
+                            connection(),
                             true,
                             e.window(),
                             xcb::EVENT_MASK_BUTTON_PRESS as u16,
@@ -424,7 +421,7 @@ impl WindowManager {
                 // Remove from the current workspace
 
                 xcb::ungrab_button(
-                    &connection(),
+                    connection(),
                     xcb::BUTTON_INDEX_1 as u8,
                     e.window(),
                     xcb::MOD_MASK_ANY as u16,
@@ -467,8 +464,7 @@ impl WindowManager {
     }
 
     fn update_layout(&mut self) {
-        let connection = connection();
-        let screen = connection.get_setup().roots().nth(0).unwrap();
+        let screen = connection().get_setup().roots().nth(0).unwrap();
         let mut bounds = Bounds::new(0, 0, screen.width_in_pixels(), screen.height_in_pixels());
 
         for window in &self.unmanaged_windows {
@@ -491,8 +487,7 @@ impl WindowManager {
     }
 
     fn set_artists(&mut self, artists: Vec<Box<Artist>>) {
-        let connection = connection();
-        let screen = connection.get_setup().roots().nth(0).unwrap();
+        let screen = connection().get_setup().roots().nth(0).unwrap();
         let root = screen.root();
         let root_visual = screen.root_visual();
 
@@ -505,14 +500,14 @@ impl WindowManager {
         // TODO: reuse decoration windows
 
         for window in self.decorations.keys().copied() {
-            xcb::destroy_window(&connection, window);
+            xcb::destroy_window(connection(), window);
         }
         self.decorations.clear();
 
         for artist in artists {
-            let new_id = connection.generate_id();
+            let new_id = connection().generate_id();
             xcb::create_window(
-                &connection,
+                connection(),
                 xcb::COPY_FROM_PARENT as u8,
                 new_id,
                 root,
@@ -528,7 +523,7 @@ impl WindowManager {
             match artist.calculate_bounds(new_id) {
                 Some(bounds) => {
                     xcb::configure_window(
-                        &connection,
+                        connection(),
                         new_id,
                         &[
                             (xcb::CONFIG_WINDOW_X as u16, bounds.origin.x as u32),
@@ -537,11 +532,11 @@ impl WindowManager {
                             (xcb::CONFIG_WINDOW_HEIGHT as u16, bounds.size.height as u32),
                         ],
                     );
-                    xcb::map_window(&connection, new_id);
+                    xcb::map_window(connection(), new_id);
                     self.decorations.insert(new_id, artist);
                 }
                 None => {
-                    xcb::destroy_window(&connection, new_id);
+                    xcb::destroy_window(connection(), new_id);
                 }
             }
         }
@@ -552,14 +547,13 @@ impl WindowManager {
             self.workspaces[self.current_workspace].hide();
             self.current_workspace = workspace;
             self.workspaces[self.current_workspace].show();
-            let connection = connection();
-            let screen = connection.get_setup().roots().nth(0).unwrap();
+            let screen = connection().get_setup().roots().nth(0).unwrap();
             set_cardinal_property(
                 screen.root(),
                 *ATOM__NET_CURRENT_DESKTOP,
                 self.current_workspace as u32,
             );
-            connection.flush();
+            connection().flush();
             true
         } else {
             false
@@ -567,8 +561,7 @@ impl WindowManager {
     }
 
     fn set_root_window_available_commands_property(&self) {
-        let connection = connection();
-        let screen = connection.get_setup().roots().nth(0).unwrap();
+        let screen = connection().get_setup().roots().nth(0).unwrap();
         set_strings_property(
             screen.root(),
             *ATOM_CERAMIC_AVAILABLE_COMMANDS,
@@ -653,7 +646,7 @@ impl Commands for WindowManager {
                         if let Some(window_data) =
                             self.workspaces[self.current_workspace].remove_focused_window()
                         {
-                            xcb::unmap_window(&connection(), window_data.window());
+                            xcb::unmap_window(connection(), window_data.window());
                             self.workspaces[new_workspace].add_window_data(window_data);
                             true
                         } else {
@@ -673,39 +666,4 @@ impl Commands for WindowManager {
             _ => self.workspaces[self.current_workspace].execute_command(command, args),
         }
     }
-}
-
-fn grab_keyboard() {
-    let connection = connection();
-    let screen = connection.get_setup().roots().nth(0).unwrap();
-    match xcb::grab_keyboard(
-        &connection,
-        false,
-        screen.root(),
-        xcb::CURRENT_TIME,
-        xcb::GRAB_MODE_ASYNC as u8,
-        xcb::GRAB_MODE_SYNC as u8,
-    )
-    .get_reply()
-    {
-        Ok(_) => (),
-        Err(x) => eprintln!("Failed to grab keyboard: {:?}", x),
-    }
-    connection.flush();
-}
-
-fn ungrab_keyboard() {
-    let connection = connection();
-    xcb::ungrab_keyboard(&connection, xcb::CURRENT_TIME);
-    connection.flush();
-}
-
-fn allow_events() {
-    let connection = connection();
-    xcb::xproto::allow_events(
-        &connection,
-        xcb::ALLOW_SYNC_KEYBOARD as u8,
-        xcb::CURRENT_TIME,
-    );
-    connection.flush();
 }

@@ -160,11 +160,11 @@ impl Workspace {
         }
         let focused_index = self.focused_window_index.unwrap();
         self.set_focused_window(if index < focused_index {
-            Some(index - 1)
+            Some(focused_index - 1)
         } else if focused_index == self.windows.len() {
             None
         } else {
-            Some(index)
+            Some(focused_index)
         });
         old_window
     }
