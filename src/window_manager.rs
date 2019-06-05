@@ -42,7 +42,13 @@ impl WindowManager {
             .expect("Cannot install as window manager");
         self.set_initial_root_window_properties();
 
-        // TODO: process all the pre-existing windows
+        for w in xcb::query_tree(connection, screen.root())
+            .get_reply()
+            .expect("Cannot get list of existing windows")
+            .children()
+        {
+            self.absorb_window(*w);
+        }
 
         self.workspaces[self.current_workspace].show();
 
@@ -172,9 +178,9 @@ impl WindowManager {
     const MINIMUM_RESIZE_WIDTH: u16 = 20;
     const MINIMUM_RESIZE_HEIGHT: u16 = 20;
 
-    const WINDOW_MOVE_KEY_MASK: xcb::KeyButMask = xcb::KEY_BUT_MASK_MOD_4;
+    const WINDOW_MOVE_KEY_MASK: xcb::KeyButMask = xcb::KEY_BUT_MASK_MOD_1;
     const WINDOW_RESIZE_KEY_MASK: xcb::KeyButMask =
-        xcb::KEY_BUT_MASK_SHIFT | xcb::KEY_BUT_MASK_MOD_4;
+        xcb::KEY_BUT_MASK_SHIFT | xcb::KEY_BUT_MASK_MOD_1;
 
     fn run_window_move_event_loop(&mut self, e: &xcb::ButtonPressEvent) {
         // TODO: lock out commands?
@@ -353,63 +359,11 @@ impl WindowManager {
             xcb::MAP_NOTIFY => {
                 let e: &xcb::MapNotifyEvent = unsafe { xcb::cast_event(e) };
 
-                // Add to the current workspace
-
                 if self.decorations.contains_key(&e.window()) {
                     return;
                 }
 
-                match self.classify_window(e.window()) {
-                    None => self.unmanaged_windows.push(e.window()),
-                    Some(is_floating) => {
-                        // TODO: use symbolic representations in the config
-                        xcb::grab_button(
-                            connection(),
-                            false,
-                            e.window(),
-                            (xcb::EVENT_MASK_BUTTON_1_MOTION
-                                | xcb::EVENT_MASK_BUTTON_PRESS
-                                | xcb::EVENT_MASK_BUTTON_RELEASE)
-                                as u16,
-                            xcb::GRAB_MODE_ASYNC as u8,
-                            xcb::GRAB_MODE_ASYNC as u8,
-                            xcb::NONE,
-                            xcb::NONE,
-                            xcb::BUTTON_INDEX_1 as u8,
-                            Self::WINDOW_MOVE_KEY_MASK as u16,
-                        );
-                        xcb::grab_button(
-                            connection(),
-                            false,
-                            e.window(),
-                            (xcb::EVENT_MASK_BUTTON_1_MOTION
-                                | xcb::EVENT_MASK_BUTTON_PRESS
-                                | xcb::EVENT_MASK_BUTTON_RELEASE)
-                                as u16,
-                            xcb::GRAB_MODE_ASYNC as u8,
-                            xcb::GRAB_MODE_ASYNC as u8,
-                            xcb::NONE,
-                            xcb::NONE,
-                            xcb::BUTTON_INDEX_1 as u8,
-                            Self::WINDOW_RESIZE_KEY_MASK as u16,
-                        );
-                        // click-to-focus
-                        xcb::grab_button(
-                            connection(),
-                            true,
-                            e.window(),
-                            xcb::EVENT_MASK_BUTTON_PRESS as u16,
-                            xcb::GRAB_MODE_ASYNC as u8,
-                            xcb::GRAB_MODE_ASYNC as u8,
-                            xcb::NONE,
-                            xcb::NONE,
-                            xcb::BUTTON_INDEX_1 as u8,
-                            0,
-                        );
-                        self.workspaces[self.current_workspace].add_window(e.window(), is_floating);
-                    }
-                }
-
+                self.absorb_window(e.window());
                 self.update_layout();
             }
 
@@ -417,8 +371,6 @@ impl WindowManager {
                 let e: &xcb::UnmapNotifyEvent = unsafe { xcb::cast_event(e) };
 
                 self.unmanaged_windows.remove_item(&e.window());
-
-                // Remove from the current workspace
 
                 xcb::ungrab_button(
                     connection(),
@@ -578,7 +530,7 @@ impl WindowManager {
         if let Some(command) = tokens.next() {
             if let Ok(args) = tokens
                 .map(|token| match token {
-                    "{window}" => {
+                    "{selected_window}" => {
                         self.do_command("layout/show_window_selector_labels", &[]);
                         let selected_label = self.run_keygrab_event_loop();
                         self.do_command("layout/hide_window_selector_labels", &[]);
@@ -592,6 +544,15 @@ impl WindowManager {
                             })
                             .ok_or(())
                     }
+                    "{focused_window}" => self.workspaces[self.current_workspace]
+                        .focused_window_index
+                        .map(|index| {
+                            format!(
+                                "{}",
+                                self.workspaces[self.current_workspace].windows[index].window()
+                            )
+                        })
+                        .ok_or(()),
                     _ => Ok(token.to_owned()),
                 })
                 .collect::<Result<Vec<String>, ()>>()
@@ -604,7 +565,63 @@ impl WindowManager {
         }
     }
 
+    fn absorb_window(&mut self, window: xcb::Window) {
+        match self.classify_window(window) {
+            None => self.unmanaged_windows.push(window),
+            Some(is_floating) => {
+                // TODO: use symbolic representations in the config
+                xcb::grab_button(
+                    connection(),
+                    false,
+                    window,
+                    (xcb::EVENT_MASK_BUTTON_1_MOTION
+                        | xcb::EVENT_MASK_BUTTON_PRESS
+                        | xcb::EVENT_MASK_BUTTON_RELEASE) as u16,
+                    xcb::GRAB_MODE_ASYNC as u8,
+                    xcb::GRAB_MODE_ASYNC as u8,
+                    xcb::NONE,
+                    xcb::NONE,
+                    xcb::BUTTON_INDEX_1 as u8,
+                    Self::WINDOW_MOVE_KEY_MASK as u16,
+                );
+                xcb::grab_button(
+                    connection(),
+                    false,
+                    window,
+                    (xcb::EVENT_MASK_BUTTON_1_MOTION
+                        | xcb::EVENT_MASK_BUTTON_PRESS
+                        | xcb::EVENT_MASK_BUTTON_RELEASE) as u16,
+                    xcb::GRAB_MODE_ASYNC as u8,
+                    xcb::GRAB_MODE_ASYNC as u8,
+                    xcb::NONE,
+                    xcb::NONE,
+                    xcb::BUTTON_INDEX_1 as u8,
+                    Self::WINDOW_RESIZE_KEY_MASK as u16,
+                );
+                // click-to-focus
+                xcb::grab_button(
+                    connection(),
+                    true,
+                    window,
+                    xcb::EVENT_MASK_BUTTON_PRESS as u16,
+                    xcb::GRAB_MODE_ASYNC as u8,
+                    xcb::GRAB_MODE_ASYNC as u8,
+                    xcb::NONE,
+                    xcb::NONE,
+                    xcb::BUTTON_INDEX_1 as u8,
+                    0,
+                );
+                self.workspaces[self.current_workspace].add_window(window, is_floating);
+            }
+        }
+    }
+
     fn classify_window(&self, window: xcb::Window) -> Option<bool> {
+        if let Ok(attributes) = xcb::get_window_attributes(connection(), window).get_reply() {
+            if attributes.override_redirect() {
+                return None;
+            }
+        };
         let wm_transient_for = get_window_property(window, xcb::ATOM_WM_TRANSIENT_FOR);
         let wm_class = get_ascii_strings_property(window, xcb::ATOM_WM_CLASS);
         let (instance_name, class_name) = if wm_class.len() == 2 {

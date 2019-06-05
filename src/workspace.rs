@@ -258,9 +258,9 @@ impl Commands for Workspace {
         if !self.windows.is_empty() {
             if let Some(index) = self.focused_window_index {
                 if self.windows[index].is_floating {
-                    commands.push(String::from("tile_focused_window"));
+                    commands.push(String::from("tile_window:"));
                 } else {
-                    commands.push(String::from("float_focused_window"));
+                    commands.push(String::from("float_window:"));
                 }
                 // TODO: this should be the count of *focusable* windows
                 if self.windows.len() > 1 {
@@ -346,29 +346,48 @@ impl Commands for Workspace {
                             ));
                             true
                         }
-                        "float_focused_window" => {
-                            if !self.windows[index].is_floating {
-                                let new_index = 0;
-                                self.windows[index].is_floating = true;
-                                self.windows.swap(index, new_index);
-                                self.set_focused_window(Some(new_index));
-                                true
-                            } else {
-                                false
+                        "float_window:" => match args[0].parse::<u32>() {
+                            Ok(window) => {
+                                match self.windows.iter().position(|w| w.window() == window) {
+                                    Some(index) => {
+                                        if !self.windows[index].is_floating {
+                                            self.windows[index].is_floating = true;
+                                            self.number_of_floating_windows += 1;
+                                            let new_index = 0;
+                                            let wd = self.windows.remove(index);
+                                            self.windows.insert(new_index, wd);
+                                            self.set_focused_window(Some(new_index));
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    None => false,
+                                }
                             }
-                        }
-                        "tile_focused_window" => {
-                            if self.windows[index].is_floating {
-                                let new_index = self.number_of_floating_windows;
-                                self.number_of_floating_windows -= 1;
-                                self.windows[index].is_floating = false;
-                                self.windows.swap(index, new_index);
-                                self.set_focused_window(Some(new_index));
-                                true
-                            } else {
-                                false
+                            Err(_) => false,
+                        },
+                        "tile_window:" => match args[0].parse::<u32>() {
+                            Ok(window) => {
+                                match self.windows.iter().position(|w| w.window() == window) {
+                                    Some(index) => {
+                                        if self.windows[index].is_floating {
+                                            self.windows[index].is_floating = false;
+                                            self.number_of_floating_windows -= 1;
+                                            let new_index = self.number_of_floating_windows;
+                                            let wd = self.windows.remove(index);
+                                            self.windows.insert(new_index, wd);
+                                            self.set_focused_window(Some(new_index));
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    None => false,
+                                }
                             }
-                        }
+                            Err(_) => false,
+                        },
                         _ => self.windows[index].execute_command(command, args),
                     },
                     None => false,
