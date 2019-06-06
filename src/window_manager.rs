@@ -9,15 +9,15 @@ use super::{
 use std::collections::HashMap;
 
 pub struct WindowManager {
-    configuration: Box<ConfigurationProvider>,
+    configuration: Box<dyn ConfigurationProvider>,
     workspaces: Vec<Workspace>,
     current_workspace: usize,
     unmanaged_windows: Vec<xcb::Window>,
-    decorations: HashMap<xcb::Window, Box<Artist>>,
+    decorations: HashMap<xcb::Window, Box<dyn Artist>>,
 }
 
 impl WindowManager {
-    pub fn new(configuration: Box<ConfigurationProvider>) -> WindowManager {
+    pub fn new(configuration: Box<dyn ConfigurationProvider>) -> WindowManager {
         let workspaces = configuration.workspaces();
         WindowManager {
             configuration,
@@ -438,7 +438,7 @@ impl WindowManager {
         self.set_root_window_available_commands_property();
     }
 
-    fn set_artists(&mut self, artists: Vec<Box<Artist>>) {
+    fn set_artists(&mut self, artists: Vec<Box<dyn Artist>>) {
         let screen = connection().get_setup().roots().nth(0).unwrap();
         let root = screen.root();
         let root_visual = screen.root_visual();

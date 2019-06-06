@@ -106,7 +106,7 @@ pub trait Layout: Commands {
         &self,
         rect: &Bounds,
         windows: Vec<WindowData>,
-    ) -> (Vec<WindowData>, Vec<Box<Artist>>);
+    ) -> (Vec<WindowData>, Vec<Box<dyn Artist>>);
 }
 
 pub fn clear_window_order(windows: &mut [WindowData]) {

@@ -6,7 +6,7 @@ pub fn new(
     width: u8,
     color: (u8, u8, u8),
     focus_color: (u8, u8, u8),
-    child: Box<Layout>,
+    child: Box<dyn Layout>,
 ) -> Box<AddBorder> {
     Box::new(AddBorder {
         width,
@@ -20,7 +20,7 @@ pub struct AddBorder {
     width: u8,
     color: (u8, u8, u8),
     focus_color: (u8, u8, u8),
-    child: Box<Layout>,
+    child: Box<dyn Layout>,
 }
 
 impl Layout for AddBorder {
@@ -28,7 +28,7 @@ impl Layout for AddBorder {
         &self,
         rect: &Bounds,
         windows: Vec<WindowData>,
-    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+    ) -> (Vec<WindowData>, Vec<Box<dyn Artist>>) {
         let focused_window = xcb::get_input_focus(&connection())
             .get_reply()
             .unwrap()

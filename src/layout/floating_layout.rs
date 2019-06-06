@@ -1,11 +1,11 @@
 use crate::{artist::Artist, commands::Commands, layout::*, window_data::WindowData};
 
-pub fn new(child: Box<Layout>) -> Box<FloatingLayout> {
+pub fn new(child: Box<dyn Layout>) -> Box<FloatingLayout> {
     Box::new(FloatingLayout { child })
 }
 
 pub struct FloatingLayout {
-    child: Box<Layout>,
+    child: Box<dyn Layout>,
 }
 
 impl Layout for FloatingLayout {
@@ -13,7 +13,7 @@ impl Layout for FloatingLayout {
         &self,
         rect: &Bounds,
         windows: Vec<WindowData>,
-    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+    ) -> (Vec<WindowData>, Vec<Box<dyn Artist>>) {
         let (mut floating_windows, tiled_windows): (Vec<WindowData>, Vec<WindowData>) =
             windows.into_iter().partition(|w| w.is_floating);
         compute_window_order(&mut floating_windows);

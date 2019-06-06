@@ -1,6 +1,6 @@
 use crate::{artist::Artist, commands::Commands, layout::*, window_data::WindowData};
 
-pub fn new(screen_gap: u16, window_gap: u16, child: Box<Layout>) -> Box<AddGaps> {
+pub fn new(screen_gap: u16, window_gap: u16, child: Box<dyn Layout>) -> Box<AddGaps> {
     Box::new(AddGaps {
         screen_gap,
         window_gap,
@@ -11,7 +11,7 @@ pub fn new(screen_gap: u16, window_gap: u16, child: Box<Layout>) -> Box<AddGaps>
 pub struct AddGaps {
     screen_gap: u16,
     window_gap: u16,
-    child: Box<Layout>,
+    child: Box<dyn Layout>,
 }
 
 impl Layout for AddGaps {
@@ -19,7 +19,7 @@ impl Layout for AddGaps {
         &self,
         rect: &Bounds,
         windows: Vec<WindowData>,
-    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+    ) -> (Vec<WindowData>, Vec<Box<dyn Artist>>) {
         let r = Bounds::new(
             rect.origin.x + self.screen_gap as i16,
             rect.origin.y + self.screen_gap as i16,

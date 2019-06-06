@@ -1,16 +1,16 @@
 use crate::{artist::Artist, commands::Commands, layout::*, window_data::WindowData};
 
-pub fn new(name: &str, child: Box<Layout>) -> LayoutRoot {
+pub fn new(name: &str, child: Box<dyn Layout>) -> LayoutRoot {
     LayoutRoot::new(name, child)
 }
 
 pub struct LayoutRoot {
     name: String,
-    child: Box<Layout>,
+    child: Box<dyn Layout>,
 }
 
 impl LayoutRoot {
-    pub fn new(name: &str, child: Box<Layout>) -> LayoutRoot {
+    pub fn new(name: &str, child: Box<dyn Layout>) -> LayoutRoot {
         LayoutRoot {
             name: name.to_owned(),
             child,
@@ -27,7 +27,7 @@ impl Layout for LayoutRoot {
         &self,
         rect: &Bounds,
         windows: Vec<WindowData>,
-    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+    ) -> (Vec<WindowData>, Vec<Box<dyn Artist>>) {
         self.child.layout(rect, windows)
     }
 }

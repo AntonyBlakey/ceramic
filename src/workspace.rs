@@ -118,7 +118,7 @@ impl Workspace {
         }
     }
 
-    pub fn update_layout(&mut self, bounds: &Bounds) -> Vec<Box<Artist>> {
+    pub fn update_layout(&mut self, bounds: &Bounds) -> Vec<Box<dyn Artist>> {
         let (new_windows, artists) =
             self.layouts[self.current_layout].layout(bounds, self.windows.clone());
 

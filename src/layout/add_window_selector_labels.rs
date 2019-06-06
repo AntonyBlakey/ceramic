@@ -3,7 +3,7 @@ use crate::{
 };
 use std::collections::HashMap;
 
-pub fn new(child: Box<Layout>) -> Box<AddWindowSelectorLabels> {
+pub fn new(child: Box<dyn Layout>) -> Box<AddWindowSelectorLabels> {
     Box::new(AddWindowSelectorLabels {
         is_enabled: false,
         child,
@@ -12,7 +12,7 @@ pub fn new(child: Box<Layout>) -> Box<AddWindowSelectorLabels> {
 
 pub struct AddWindowSelectorLabels {
     is_enabled: bool,
-    child: Box<Layout>,
+    child: Box<dyn Layout>,
 }
 
 impl Layout for AddWindowSelectorLabels {
@@ -20,7 +20,7 @@ impl Layout for AddWindowSelectorLabels {
         &self,
         rect: &Bounds,
         windows: Vec<WindowData>,
-    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+    ) -> (Vec<WindowData>, Vec<Box<dyn Artist>>) {
         if !self.is_enabled {
             return self.child.layout(rect, windows);
         }
@@ -42,7 +42,7 @@ impl Layout for AddWindowSelectorLabels {
         artists.extend(
             selector_artists
                 .drain()
-                .map(|(_, artist)| Box::new(artist) as Box<Artist>),
+                .map(|(_, artist)| Box::new(artist) as Box<dyn Artist>),
         );
 
         (new_windows, artists)

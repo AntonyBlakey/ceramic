@@ -5,8 +5,8 @@ pub fn new(
     axis: Axis,
     ratio: f64,
     count: usize,
-    child_a: Box<Layout>,
-    child_b: Box<Layout>,
+    child_a: Box<dyn Layout>,
+    child_b: Box<dyn Layout>,
 ) -> Box<SplitLayout> {
     Box::new(SplitLayout {
         direction,
@@ -22,7 +22,7 @@ pub struct SplitLayout {
     direction: Direction,
     ratio: f64,
     count: usize,
-    children: (Box<Layout>, Box<Layout>),
+    children: (Box<dyn Layout>, Box<dyn Layout>),
 }
 
 impl Layout for SplitLayout {
@@ -30,7 +30,7 @@ impl Layout for SplitLayout {
         &self,
         rect: &Bounds,
         windows: Vec<WindowData>,
-    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+    ) -> (Vec<WindowData>, Vec<Box<dyn Artist>>) {
         if windows.is_empty() {
             return Default::default();
         }

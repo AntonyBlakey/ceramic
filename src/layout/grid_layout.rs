@@ -11,7 +11,7 @@ impl Layout for GridLayout {
         &self,
         rect: &Bounds,
         windows: Vec<WindowData>,
-    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+    ) -> (Vec<WindowData>, Vec<Box<dyn Artist>>) {
         if windows.is_empty() {
             return Default::default();
         }

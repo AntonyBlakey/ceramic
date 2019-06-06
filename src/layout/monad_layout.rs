@@ -1,6 +1,6 @@
 use crate::layout::*;
 
-pub fn new_linear(direction: Direction, axis: Axis, ratio: f64, count: usize) -> Box<Layout> {
+pub fn new_linear(direction: Direction, axis: Axis, ratio: f64, count: usize) -> Box<dyn Layout> {
     split_layout::new(
         direction,
         axis,
@@ -11,7 +11,7 @@ pub fn new_linear(direction: Direction, axis: Axis, ratio: f64, count: usize) ->
     )
 }
 
-pub fn new_stack(direction: Direction, axis: Axis, ratio: f64, count: usize) -> Box<Layout> {
+pub fn new_stack(direction: Direction, axis: Axis, ratio: f64, count: usize) -> Box<dyn Layout> {
     split_layout::new(
         direction,
         axis,

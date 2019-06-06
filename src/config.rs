@@ -4,7 +4,7 @@ mod user;
 use super::{layout::*, workspace::Workspace};
 
 pub trait ConfigurationProvider {
-    fn root(&self) -> &ConfigurationProvider;
+    fn root(&self) -> &dyn ConfigurationProvider;
 
     fn workspaces(&self) -> Vec<Workspace> {
         default::workspaces(self.root())
@@ -14,7 +14,7 @@ pub trait ConfigurationProvider {
         default::layouts(self.root())
     }
 
-    fn layout_root(&self, name: &str, child: Box<Layout>) -> layout_root::LayoutRoot {
+    fn layout_root(&self, name: &str, child: Box<dyn Layout>) -> layout_root::LayoutRoot {
         default::layout_root(self.root(), name, child)
     }
 
@@ -42,7 +42,7 @@ pub trait ConfigurationProvider {
 pub struct Configuration {}
 
 impl Configuration {
-    pub fn new() -> Box<ConfigurationProvider> {
+    pub fn new() -> Box<dyn ConfigurationProvider> {
         Box::new(Self {})
     }
 }

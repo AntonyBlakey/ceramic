@@ -1,13 +1,13 @@
 use crate::{config::*, connection::*, layout::*, workspace::Workspace};
 
-pub fn workspaces(configuration: &ConfigurationProvider) -> Vec<Workspace> {
+pub fn workspaces(configuration: &dyn ConfigurationProvider) -> Vec<Workspace> {
     ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
         .iter()
         .map(|name| Workspace::new(name, configuration.layouts()))
         .collect()
 }
 
-pub fn layouts(configuration: &ConfigurationProvider) -> Vec<layout_root::LayoutRoot> {
+pub fn layouts(configuration: &dyn ConfigurationProvider) -> Vec<layout_root::LayoutRoot> {
     vec![
         configuration.layout_root(
             "monad_tall_right",
@@ -26,9 +26,9 @@ pub fn layouts(configuration: &ConfigurationProvider) -> Vec<layout_root::Layout
 }
 
 pub fn layout_root(
-    _configuration: &ConfigurationProvider,
+    _configuration: &dyn ConfigurationProvider,
     name: &str,
-    child: Box<Layout>,
+    child: Box<dyn Layout>,
 ) -> layout_root::LayoutRoot {
     layout_root::new(
         name,
@@ -42,7 +42,7 @@ pub fn layout_root(
 }
 
 pub fn classify_window(
-    _configuration: &ConfigurationProvider,
+    _configuration: &dyn ConfigurationProvider,
     _window: xcb::Window,
     wm_instance_name: Option<&str>,
     _wm_class_name: Option<&str>,

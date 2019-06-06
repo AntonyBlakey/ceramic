@@ -3,7 +3,7 @@ use crate::config::*;
 
 impl ConfigurationProvider for Configuration {
     // Must be provided - there is no default trait implementation
-    fn root(&self) -> &ConfigurationProvider {
+    fn root(&self) -> &dyn ConfigurationProvider {
         self
     }
 

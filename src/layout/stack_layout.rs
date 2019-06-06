@@ -45,14 +45,14 @@ impl Layout for StackLayout {
         &self,
         rect: &Bounds,
         windows: Vec<WindowData>,
-    ) -> (Vec<WindowData>, Vec<Box<Artist>>) {
+    ) -> (Vec<WindowData>, Vec<Box<dyn Artist>>) {
         if windows.is_empty() {
             return Default::default();
         }
 
         let axis = rect.size.largest_axis();
 
-        let artists: Vec<Box<Artist>> = vec![Box::new(StackIndicatorArtist {
+        let artists: Vec<Box<dyn Artist>> = vec![Box::new(StackIndicatorArtist {
             window: windows[0].window(),
             axis: axis,
         })];
